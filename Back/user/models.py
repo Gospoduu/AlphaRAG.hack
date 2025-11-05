@@ -12,7 +12,7 @@ class Role(str, Enum):
     OPERATOR = "operator"
 
 class User(Base):
-    __tablename__ = 'users'
+    __tablename__ = 'user'
     uuid: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
         primary_key=True,
