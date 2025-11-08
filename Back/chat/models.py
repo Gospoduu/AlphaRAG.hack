@@ -6,8 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy import String,UniqueConstraint, ForeignKey, Integer, DateTime, Boolean
 from datetime import datetime
 from enum import Enum
-
-from ..user.models import User, Role
+from ..user.models import Role
 
 
 class Chat(Base):

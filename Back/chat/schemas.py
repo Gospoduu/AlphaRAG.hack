@@ -3,7 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 class CreateChatBase(BaseModel):
-    user_uid: UUID
+    user_uuid: UUID
     hat_model = ConfigDict(from_attributes=True)
 
 

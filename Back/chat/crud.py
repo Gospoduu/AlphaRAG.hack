@@ -2,12 +2,11 @@ import uuid
 
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
-from sqlalchemy.util import await_only
-
+from sqlalchemy import select, update, delete, and_
 from models import *
 from uuid import UUID
 from typing import Optional, List, AsyncGenerator
+
 
 # =======Chats=======
 # select
@@ -17,9 +16,10 @@ async def get_user_chats(
     result = await db.execute(
         select(Chat)
         .where(Chat.user_uuid == user_uuid)
-        .order_by(Chat.created_at.asc())
+        .order_by(Chat.created_at.desc())
     )
     chats = result.scalars().all()
+
     return list(chats)
 
 async def get_is_generate(
@@ -29,7 +29,7 @@ async def get_is_generate(
         select(Chat.is_generate)
         .where(Chat.id == chat_id)
     )
-    is_generate = result.scalars().first()
+    is_generate = result.scalar_one_or_none()
     return is_generate
 
 # create
@@ -42,8 +42,8 @@ async def _create_chat_member(db: AsyncSession,
     return chat_member
 
 async def create_chat(db: AsyncSession,
-                      user_uuid: UUID)-> Chat:
-    chat = Chat(user_uuid=user_uuid)
+                      user_uuid: UUID, title: str = "")-> Chat:
+    chat = Chat(user_uuid=user_uuid, title=title)
     db.add(chat)
     await db.flush()
     chat_id = chat.id
@@ -69,7 +69,7 @@ async def change_is_generate(
 async def change_title(
         db: AsyncSession,
         chat_id: int,
-        new_title: bool)-> Optional[Chat]:
+        new_title: str)-> Optional[Chat]:
     result = await db.execute(
         select(Chat)
         .where(Chat.id == chat_id)
@@ -81,19 +81,53 @@ async def change_title(
     await db.flush()
     return chat
 # delete
+async def delete_member_by_id(
+        db: AsyncSession,
+        id: int)-> None:
+    result = await db.execute(
+        select(ChatMember)
+        .where(ChatMember.id == id)
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise ValueError(f"Member {id} not found")
+    await db.delete(member)
+    await db.flush()
+async def delete_member_by_user_and_chat(
+        db: AsyncSession,
+        user_uuid: UUID,
+        chat_id: int,
+)-> None:
+    result = await db.execute(
+        select(ChatMember)
+        .where(ChatMember.chat_id == chat_id, ChatMember.user_uuid == user_uuid)
+    )
+    member = result.scalar_one_or_none()
+    if not member:
+        raise ValueError(f"Member with user {user_uuid} and chat {chat_id} not found")
+    await db.delete(member)
+    await db.flush()
+
 async def delete_chat(db: AsyncSession,chat_id: int)-> None:
     chat = await db.execute(
         select(Chat)
         .where(Chat.id == chat_id)
     )
-    member = await db.execute(
+    members = await db.execute(
         select(ChatMember)
         .where(ChatMember.chat_id == chat_id)
-        .limit(1)
     )
+    chat = chat.scalar_one_or_none()
+    members = members.scalars().all() or []
+    if not chat:
+        raise ValueError(f"Chat {chat_id} not found")
+
+    for member in members:
+        await db.delete(member)
+
     await db.delete(chat)
-    await db.delete(member)
     await db.flush()
+
 # =======Messages=======
 # select
 async def get_chat_batch(
@@ -118,21 +152,21 @@ async def create_message(
         local_id: int,
         user_role,
         text: str,
-        answered_at: Optional[int] = None
+        answered_to: Optional[int] = None
 )-> Message:
-    new_message = Message(chat_id=chat_id, user_uuid=user_uuid, local_id=local_id, text=text,user_role=user_role or None, answered_at=answered_at)
+    new_message = Message(chat_id=chat_id, user_uuid=user_uuid, local_id=local_id, text=text,user_role=user_role or None, answered_to=answered_to)
     db.add(new_message)
     await db.flush()
     return new_message
 # patch
-async def update_react(db: AsyncSession,
-                          message_id: UUID,
+async def update_reaction(db: AsyncSession,
+                          message_id: int,
                           react: int) -> Optional[Message]:
     result = await db.execute(select(Message).where(Message.id == message_id))
     message = result.scalar_one_or_none()
     if not message:
         raise ValueError(f"Message {message_id} not found")
-    setattr(message, 'react', react)
+    setattr(message, 'reaction', react)
     await db.flush()
     return message
 
@@ -152,7 +186,7 @@ async def get_all_operator_tickets(
     else:
         result = await db.execute(
             select(Ticket)
-            .where(Ticket.operator_uuid == operator_uuid and Ticket.was_answered == was_answered)
+            .where(and_(Ticket.operator_uuid == operator_uuid, Ticket.was_answered == was_answered))
         )
     tickets = result.scalars().all()
     return list(tickets)
@@ -181,7 +215,7 @@ async def create_ticket(
 async def update_ticket(
         db: AsyncSession,
         ticket_id: int,
-        answered_text: str,
+        answer_text: str,
 ) -> Optional[Ticket]:
     result = await db.execute(
         select(Ticket)
@@ -192,7 +226,7 @@ async def update_ticket(
         raise ValueError(f"Ticket {ticket_id} not found")
     if ticket.was_answered:
         raise ValueError(f"Ticket {ticket_id} already answered")
-    setattr(ticket, 'answered_text', answered_text)
+    setattr(ticket, 'answer_text', answer_text)
     setattr(ticket, 'was_answered', True)
     setattr(ticket, 'answered_at', datetime.now())
     await db.flush()
