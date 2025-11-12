@@ -4,7 +4,6 @@ import redis.asyncio as redis
 from dotenv import load_dotenv
 import os
 from pathlib import Path
-from typing import AsyncGenerator
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
 print("🔍 Ищу .env по пути:", env_path)

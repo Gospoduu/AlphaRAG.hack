@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from uuid import UUID
+
+from pydantic import BaseModel, Field
 from models import Role
 
 class CreateUserBase(BaseModel):

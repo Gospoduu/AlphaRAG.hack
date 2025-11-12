@@ -2,10 +2,18 @@ import uuid
 
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_
+from sqlalchemy import select, update, delete, and_, text
 from models import *
 from uuid import UUID
 from typing import Optional, List, AsyncGenerator
+
+# =======System======
+async def ping_db(db: AsyncSession):
+    try:
+        await db.execute(text("SELECT 1"))
+        return True
+    except NoResultFound:
+        return False
 
 
 # =======Chats=======
@@ -144,6 +152,15 @@ async def get_chat_batch(
     )
     batch = result.scalars().all()
     return list(batch)
+async def get_last_message_local_id(db: AsyncSession,chat_id: int) -> Optional[int]:
+    result = await db.execute(
+        select(Message.local_id)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.local_id.desc())
+        .limit(1)
+    )
+    local_id = result.scalar_one_or_none()
+    return local_id or None
 # create
 async def create_message(
         db: AsyncSession,
@@ -154,7 +171,12 @@ async def create_message(
         text: str,
         answered_to: Optional[int] = None
 )-> Message:
-    new_message = Message(chat_id=chat_id, user_uuid=user_uuid, local_id=local_id, text=text,user_role=user_role or None, answered_to=answered_to)
+    new_message = Message(chat_id=chat_id,
+                          user_uuid=user_uuid,
+                          local_id=local_id,
+                          text=text,
+                          user_role=user_role or Role.USER.value,
+                          answered_to=answered_to or None)
     db.add(new_message)
     await db.flush()
     return new_message
