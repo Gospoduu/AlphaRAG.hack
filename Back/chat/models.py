@@ -21,7 +21,7 @@ class Chat(Base):
     )
     user_uuid: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("user.uuid",
+        ForeignKey("users.uuid",
                     ondelete="CASCADE"
                    ),
          nullable=False)
@@ -59,7 +59,7 @@ class Message(Base):
     local_id: Mapped[int] = mapped_column(Integer,nullable=False)
     user_uuid :Mapped[UUID]=mapped_column(PGUUID(as_uuid=True),
 
-                                          ForeignKey("user.uuid",
+                                          ForeignKey("users.uuid",
                                                                  ondelete="CASCADE"
                                                                  ),
                                           nullable=False)
@@ -103,7 +103,7 @@ class ChatMember(Base):
     )
     user_uuid: Mapped[UUID]=mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("user.uuid", ondelete="CASCADE"),
+        ForeignKey("users.uuid", ondelete="CASCADE"),
         nullable=False,
     )
     __table_args__ = (
@@ -121,12 +121,12 @@ class Ticket(Base):
 
     operator_uuid: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("user.uuid", ondelete="RESTRICT"),
+        ForeignKey("users.uuid", ondelete="RESTRICT"),
         nullable=False,
     )
     user_uuid: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("user.uuid", ondelete="SET NULL"),
+        ForeignKey("users.uuid", ondelete="SET NULL"),
         nullable=True,
     )
     answered_to: Mapped[int] = mapped_column(

@@ -1,6 +1,5 @@
-import redis
 from enum import Enum
-from start_redis import redis_client
+from .start_redis import redis_client
 from redis.asyncio import Redis
 from typing import AsyncGenerator
 from ..events import EventBase, EventDataBase
@@ -34,6 +33,7 @@ def __get_generator_key(chat_id: int):
     key = f"chat:{chat_id}:generated_text"
     return key
 
+
 async def add_generated_token(token: str, chat_id: int, redis: Redis):
     key = __get_generator_key(chat_id)
     await redis.append(key, token)
@@ -56,7 +56,7 @@ async def update_generated_text(
 
 async def change_chat_status(chat_id: int,new_status: str, redis: Redis):
     key = __get_chat_status_key(chat_id)
-    if new_status not in GenerationStatus:
+    if new_status not in [s.value for s in GenerationStatus]:
         raise ValueError("Unknown new status")
     await redis.set(key, new_status)
 async def check_chat_status(
@@ -85,3 +85,5 @@ async def ensure_redis_connection(r: Redis, retries: int = 3, delay: float = 2.0
             return True
         await asyncio.sleep(delay)
     return False
+
+

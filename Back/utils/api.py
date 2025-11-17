@@ -1,7 +1,9 @@
 from fastapi import HTTPException
 from typing import Optional, Callable
+from functools import wraps
 
 def endpoint_try(func: Callable) -> Optional[Callable]:
+    @wraps(func)
     async def wrapper(*args, **kwargs):
         try:
             return await func(*args, **kwargs)

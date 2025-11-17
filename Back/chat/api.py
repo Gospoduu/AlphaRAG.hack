@@ -1,58 +1,14 @@
 
 from fastapi import APIRouter, Depends, HTTPException
 from ..db.db import get_db
-from ..cache.cache_manager import add_generated_token, delete_generated_text
 from ..utils.api import endpoint_try
-from ..user.ws import manager, ConnectionManager
-from crud import get_user_chats, create_chat, delete_chat, create_message, get_last_message_local_id, get_chat_batch
-from models import Role
+from .crud import get_user_chats, create_chat, delete_chat, create_message, get_last_message_local_id, get_chat_batch
 from uuid import UUID
-from schemas import CreateChatBase, CreateMessageBase
+from .schemas import CreateChatBase, CreateMessageBase
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, Callable, AsyncGenerator
-from fastapi.responses import StreamingResponse
-from redis.asyncio import Redis
-import asyncio
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-
-async def create_token_event(
-        chat_id: int,
-        user_uuid: UUID,
-        llm_stream: AsyncGenerator[str],
-        ws_manager: ConnectionManager,
-
-        r: Redis):
-    try:
-        was_exception = False
-        detail = "Generate end's successful"
-        async for token in llm_stream:
-            await add_generated_token(token, chat_id, r)
-            await ws_manager.send_event (
-                user_uuid,
-                {"event":"new_token",
-                "data": TokenData(
-                chat_id=chat_id,
-                token=token)
-                }
-            )
-    except Exception as ex:
-        was_exception = True
-        detail = str(ex)
-        await delete_generated_text(chat_id, r)
-    finally:
-        yield {
-            "event":"end_generation",
-            "data":EndGenerationData(
-                chat_id=chat_id,
-                detail=detail,
-                status="error" if was_exception else "success",
-                ).model_dump()
-                }
-
 
 @router.get("/{user_uuid}/chats")
 @endpoint_try

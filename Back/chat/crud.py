@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, and_, text
-from models import *
+from .models import *
 from uuid import UUID
 from typing import Optional, List, AsyncGenerator
 

@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from models import User
+from .models import User
 
 # POST
 async def create_user(db: AsyncSession, role: str) -> User:

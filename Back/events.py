@@ -10,7 +10,9 @@ class EventDataBase(BaseModel):
 class EventBase(BaseModel):
     event: str
     data: EventDataBase
-    status: str
+    status: str = "ok"
+    def get_event_data(self) -> str:
+        return self.event
 
 
 class PongData(EventDataBase):
@@ -18,7 +20,7 @@ class PongData(EventDataBase):
 
 class PongEvent(EventBase):
     event: str = "pong"
-    status: str = "ok"
+    status: str
     data: PongData = Field(
         default_factory=PongData,
     )
@@ -46,6 +48,8 @@ class InvalidDataError(ErrorData):
 
 class ConnectionErrorData(ErrorData):
     pass
+class HandlerErrorData(ErrorData):
+    pass
 
 class ErrorEvent(EventBase):
     event: str = "error"
@@ -59,8 +63,8 @@ server_events = [
     ErrorEvent,
     PongEvent,
 ]
-server_events_dict = {e.event:e for e in server_events}
+server_events_dict = {e.model_fields["event"].default: e for e in server_events}
 client_events = [
     PingEvent,
 ]
-client_events_dict = {e.event:e for e in client_events}
+client_events_dict = {e.model_fields["event"].default: e for e in client_events}

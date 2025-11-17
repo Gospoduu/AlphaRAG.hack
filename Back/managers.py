@@ -3,9 +3,7 @@ from typing import List, Dict
 from pydantic import BaseModel
 from enum import Enum
 from uuid import UUID
-from fastapi.exceptions import HTTPException
-from pydantic.mypy import PydanticModelField
-from events import EventBase
+from .events import EventBase
 
 class EventType(str, Enum):
     NEW_TOKEN = "new_token"
@@ -24,21 +22,49 @@ class ConnectionManager:
             ):
         await websocket.accept()
         self.active_connections[str(user_uuid)] = websocket
-    def disconnect(self, user_uuid:UUID):
-        ws = self.active_connections.pop(str(user_uuid), None)
-        if ws:
-            self.active_connections.pop(str(user_uuid), None)
+        print("new connection")
+
+    def disconnect(self, user_uuid:UUID, websocket:WebSocket | None = None):
+        key = str(user_uuid)
+        current = self.active_connections.get(key)
+        if current is None:
+            print("disconnect: no active connection")
+            return
+        if websocket is not None and current is not websocket:
+            print(
+                "disconnect: skip, stored ws is different",
+                key,
+                "stored_id=", id(current),
+                "closing_id=", id(websocket),
+            )
+            return
+        self.active_connections.pop(str(user_uuid), None)
+        print("disconnect", key)
 
     async def send_event(
             self,
             user_uuid: UUID,
             event: EventBase,):
         try:
+            print("active_connections KEYS:", list(self.active_connections.keys()))
+            print("trying to send to:", str(user_uuid), "event:", event.event)
             ws = self.active_connections.get(str(user_uuid)) or None
             if ws is None:
+                print("NO WS FOUND for user", str(user_uuid))
                 return
-            await ws.send_json(event.model_dump())
+            payload = event.model_dump(mode="json")
+            await ws.send_json(payload)
+            print("send event - ok")
         except AttributeError as e:
+            print("except send event -",e)
             return
-        except Exception:
+        except Exception as e:
+            print(f"except send event and disconnect before\n{e}")
             self.disconnect(user_uuid)
+    async def get_all_connections(
+            self
+    ):
+        all_connections = self.active_connections
+        return all_connections
+
+manager = ConnectionManager()

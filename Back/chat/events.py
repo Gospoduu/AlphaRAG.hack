@@ -1,14 +1,15 @@
-from ..events import EventDataBase, EventBase
+from ..events import EventDataBase, EventBase, ErrorEvent, ErrorData
 from pydantic import Field
 from datetime import datetime
 from uuid import UUID
-from models import Role
-
+from .models import Role
+from typing import Optional
 
 # server events
 class NewTokenData(EventDataBase):
     token: str
     chat_id: int
+    id: int
 
 class EndGenerationData(EventDataBase):
     chat_id: int
@@ -20,31 +21,42 @@ class MessageResponseData(EventDataBase):
     chat_id: int
     user_uuid: UUID
     text: str
-    answered_to: int
+    answered_to: Optional[int]
     user_role: str = Role.USER.value
 
 class GeneratedTextData(EventDataBase):
     chat_id: int
     text: str
 
+class GenerationRestoreData(EventDataBase):
+    last_id: str | None = None
+    chat_id: int
+    last_token_id: int | None = None
+
+class GenerationRestoreEvent(EventBase):
+    event: str = "generation_restore"
+    status: str = "ok"
+    data: GenerationRestoreData
+
 class GeneratedTextEvent(EventBase):
     status: str = "ok"
     event: str = "generated_text"
+    data: GeneratedTextData
 
 class MessageResponseEvent(EventBase):
-    event = "message_response"
+    event: str = "message_response"
     status: str = "ok"
     data: MessageResponseData
 
 
 class NewTokenEvent(EventBase):
-    event = "new_token"
+    event: str = "new_token"
     status: str = "ok"
     data: NewTokenData
 
 class EndGenerationEvent(EventBase):
     status: str = "ok"
-    event = "end_generation"
+    event: str = "end_generation"
     data: EndGenerationData
 
 # client event
@@ -57,11 +69,21 @@ class NewMessageData(EventDataBase):
 
 
 class NewMessageEvent(EventBase):
-    event = "new_message"
+    event: str = "new_message"
     status: str = "ok"
     data: NewMessageData
 
-server_events = [NewTokenEvent, EndGenerationEvent ]
-client_events = [NewMessageEvent]
-server_events_dict ={e.event: e for e in server_events}
-client_events_dict ={e.event: e for e in client_events}
+class ReconnectionErrorData(ErrorData):
+    details: str
+    chat_id: int
+class ReconnectionErrorEvent(EventBase):
+    event: str = "reconnection_error"
+    status: str = "error"
+    data: ReconnectionErrorData
+
+server_events = [NewTokenEvent, EndGenerationEvent, GeneratedTextEvent ]
+client_events = [NewMessageEvent, GenerationRestoreEvent]
+server_events_dict = {e.model_fields["event"].default: e for e in server_events}
+client_events_dict = {e.model_fields["event"].default: e for e in client_events}
+
+
