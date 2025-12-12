@@ -1,5 +1,6 @@
 import asyncio
 import os
+import sys
 from uuid import UUID
 from datetime import datetime
 from pathlib import Path
@@ -8,9 +9,23 @@ from dotenv import load_dotenv
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from .db import engine, AsyncSessionLocal, Base
-from ..user.models import *
-from ..chat.models import *
+# ФИКС для Docker: добавляем корень проекта в sys.path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Теперь используем абсолютные импорты для Docker
+try:
+    # Сначала пробуем абсолютные импорты (для Docker)
+    from db.db import engine, AsyncSessionLocal, Base
+    from user.models import *
+    from chat.models import *
+except ImportError:
+    # Если не сработало, пробуем относительные (для локального запуска)
+    from .db import engine, AsyncSessionLocal, Base
+    from ..user.models import *
+    from ..chat.models import *
 
 # Загружаем .env
 env_path = Path(__file__).resolve().parent.parent / ".env"

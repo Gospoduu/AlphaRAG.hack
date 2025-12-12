@@ -2,7 +2,8 @@ from collections.abc import Callable
 from typing import AsyncGenerator, Dict
 from redis import RedisError
 from redis.asyncio import Redis
-from ..cache.cache_manager import add_generated_token, delete_generated_text, check_generated_text, change_chat_status, check_chat_status, GenerationStatus, redis_is_fine, update_generated_text, ensure_redis_connection
+from ..cache.cache_manager import redis_is_fine
+from .cache import add_generated_token, delete_generated_text, check_generated_text, change_chat_status, check_chat_status, GenerationStatus, update_generated_text, ensure_redis_connection
 from Back.events import PingEvent, EventBase, ErrorData
 from ..handler_manager import handler_manager
 from .events import NewMessageEvent, GenerationRestoreEvent, GenerationRestoreData
@@ -267,3 +268,4 @@ async def restore_handler(event: GenerationRestoreEvent, redis: Redis)->AsyncGen
 
 handler_manager.register("generation_restore",restore_handler)
 handler_manager.register("new_message", message_handler, llm_answer_handler)
+

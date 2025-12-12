@@ -12,9 +12,16 @@ from ..user.ws import router as user_ws_router
 from ..chat.api import router as chat_router
 from ..register_handlers import register_all_handlers
 from ..handler_manager import handler_manager
-
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
+
+app.mount("/static", StaticFiles(directory="back/static"), name="static")
+
+# Пример маршрута для проверки
+@app.get("/")
+async def read_root():
+    return {"message": "API работает!"}
 
 app.add_middleware(
     CORSMiddleware,

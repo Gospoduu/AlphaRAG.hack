@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: alpharag-postgres
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: 1234567890
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d mydb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: alpharag-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alpharag-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://appuser:1234567890@postgres:5432/mydb
+      REDIS_URL: redis://redis:6379/0
+      LLM_USER_UUID: d589aeab-e4e5-4746-ab25-607bcd7cb644
+      PYTHONPATH: /app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: >
+      sh -c "echo 'Waiting for PostgreSQL...' &&
+             until pg_isready -h postgres -p 5432 -U appuser; do
+               sleep 2;
+             done &&
+             echo 'PostgreSQL is ready!' &&
+             echo 'Waiting for Redis...' &&
+             until nc -z redis 6379; do
+               sleep 2;
+             done &&
+             echo 'Redis is ready!' &&
+             echo 'Initializing database...' &&
+             # Используем обертку вместо прямого запуска start_db.py
+             python init_database.py &&
+             echo 'Starting FastAPI...' &&
+             python -m main.main"
+
+volumes:
+  postgres_data:
+  redis_data:
