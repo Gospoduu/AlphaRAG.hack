@@ -4,14 +4,14 @@ import uvicorn
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.db import get_db
-from ..chat.crud import ping_db
-from ..cache.cache_manager import redis_is_fine, get_redis
-from ..user.api import router as user_router
-from ..user.ws import router as user_ws_router
-from ..chat.api import router as chat_router
-from ..register_handlers import register_all_handlers
-from ..handler_manager import handler_manager
+from Back.infra.db.db import get_db
+from Back.modules.chat.crud import ping_db
+from Back.infra.redis.cache_manager import redis_is_fine, get_redis
+from Back.modules.user.api import router as user_router
+from Back.ws.ws import router as user_ws_router
+from Back.modules.chat.api import router as chat_router
+from Back.register_handlers import register_all_handlers
+from Back.core.events_bus.handler_manager import handler_manager
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()

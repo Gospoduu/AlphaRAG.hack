@@ -1,6 +1,6 @@
-from typing import Callable, Any, AsyncGenerator, Optional, Dict, List, Coroutine, Union
+from typing import Callable, Any, AsyncGenerator, Dict, List, Coroutine, Union
 
-from .events import ErrorEvent, UnknownEventTypeErrorData, EventBase
+from Back.core.events_bus.events import EventBase
 
 HandlerType = Callable[..., Union[EventBase, AsyncGenerator[EventBase, None], Coroutine[Any, Any, EventBase]]]
 
@@ -11,6 +11,8 @@ class HandlerManager:
         self.events_dict[event] = list(handlers)
         print(f"Registered {event} handlers for {handlers.__ne__} ")
     def get_handlers(self, event: str) -> List[HandlerType]:
+        return self.events_dict.get(event, [])
+    def __getitem__(self, event: str) -> List[HandlerType]:
         return self.events_dict.get(event, [])
 handler_manager = HandlerManager()
 

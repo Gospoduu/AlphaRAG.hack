@@ -1,4 +1,4 @@
-from ..db.db import Base
+from Back.infra.db.db import Base
 from uuid import UUID
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy import String,UniqueConstraint, ForeignKey, Integer, DateTime, Boolean
 from datetime import datetime
 from enum import Enum
-from ..user.models import Role
+from Back.modules.user.models import Role
 
 
 class Chat(Base):

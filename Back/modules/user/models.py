@@ -1,5 +1,5 @@
 from sqlalchemy import String, DateTime
-from ..db.db import Base
+from Back.infra.db.db import Base
 from sqlalchemy.orm import mapped_column, Mapped
 from uuid import uuid4, UUID
 from sqlalchemy.dialects.postgresql import UUID as PGUUID

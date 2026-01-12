@@ -1,9 +1,8 @@
 from fastapi import WebSocket
-from typing import List, Dict
-from pydantic import BaseModel
+from typing import Dict
 from enum import Enum
 from uuid import UUID
-from .events import EventBase
+from Back.core.events_bus.events import EventBase
 
 class EventType(str, Enum):
     NEW_TOKEN = "new_token"
@@ -44,23 +43,28 @@ class ConnectionManager:
     async def send_event(
             self,
             user_uuid: UUID,
-            event: EventBase,):
+            event: EventBase,)->bool:
+        ws = None
         try:
-            print("active_connections KEYS:", list(self.active_connections.keys()))
-            print("trying to send to:", str(user_uuid), "event:", event.event)
-            ws = self.active_connections.get(str(user_uuid)) or None
+            ws = self.active_connections.get(str(user_uuid))
             if ws is None:
                 print("NO WS FOUND for user", str(user_uuid))
-                return
+                return False
+            print("active_connections KEYS:", list(self.active_connections.keys()))
+            print("trying to send to:", str(user_uuid), "event:", event.event)
+
             payload = event.model_dump(mode="json")
             await ws.send_json(payload)
             print("send event - ok")
+            return True
         except AttributeError as e:
             print("except send event -",e)
-            return
+            return False
         except Exception as e:
             print(f"except send event and disconnect before\n{e}")
-            self.disconnect(user_uuid)
+            self.disconnect(user_uuid, ws)
+            return False
+
     async def get_all_connections(
             self
     ):

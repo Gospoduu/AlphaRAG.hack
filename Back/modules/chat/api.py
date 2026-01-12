@@ -1,10 +1,10 @@
 
-from fastapi import APIRouter, Depends, HTTPException
-from ..db.db import get_db
-from ..utils.api import endpoint_try
-from .crud import get_user_chats, create_chat, delete_chat, create_message, get_last_message_local_id, get_chat_batch
+from fastapi import APIRouter, Depends
+from Back.infra.db.db import get_db
+from Back.utils.api import endpoint_try
+from .crud import get_user_chats, create_chat, delete_chat, get_chat_batch
 from uuid import UUID
-from .schemas import CreateChatBase, CreateMessageBase
+from .schemas import CreateChatBase
 from sqlalchemy.ext.asyncio import AsyncSession
 
 

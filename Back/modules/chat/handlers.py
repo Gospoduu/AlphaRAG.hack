@@ -1,20 +1,18 @@
 from collections.abc import Callable
 from typing import AsyncGenerator, Dict
-from redis import RedisError
 from redis.asyncio import Redis
-from ..cache.cache_manager import redis_is_fine
-from .cache import add_generated_token, delete_generated_text, check_generated_text, change_chat_status, check_chat_status, GenerationStatus, update_generated_text, ensure_redis_connection
-from Back.events import PingEvent, EventBase, ErrorData
-from ..handler_manager import handler_manager
-from .events import NewMessageEvent, GenerationRestoreEvent, GenerationRestoreData
-from .events import NewTokenEvent, NewTokenData, EndGenerationEvent, MessageResponseEvent, MessageResponseData, GeneratedTextEvent, GeneratedTextData, EndGenerationData, ReconnectionErrorEvent, ReconnectionErrorData
+from Back.infra.redis.streams import add_generated_token, delete_generated_text, check_generated_text, change_chat_status, check_chat_status, GenerationStatus, update_generated_text, ensure_redis_connection
+from Back.core.events_bus.events import EventBase
+from Back.core.events_bus.handler_manager import handler_manager
+from Back.modules.chat.events import NewMessageEvent, GenerationRestoreEvent
+from Back.modules.chat.events import NewTokenEvent, NewTokenData, EndGenerationEvent, MessageResponseEvent, MessageResponseData, GeneratedTextEvent, GeneratedTextData, EndGenerationData, ReconnectionErrorEvent, ReconnectionErrorData
 import asyncio
-from .crud import create_message, get_last_message_local_id, get_is_generate, change_is_generate
+from .crud import create_message, get_last_message_local_id, change_is_generate
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..user.models import Role
+from Back.modules.user.models import Role
 from  uuid import UUID
-from ..events import ErrorEvent, UnknownEventTypeErrorData, NotEventTypeErrorData, InvalidDataError, ConnectionErrorData
-from .cache import set_awaited_message, check_awaited_message, subscribe_to_stream, add_token_to_stream, add_end_to_stream
+from Back.core.events_bus.events import ErrorEvent, InvalidDataError, ConnectionErrorData
+from Back.infra.redis.streams import set_awaited_message, subscribe_to_stream, add_token_to_stream, add_end_to_stream
 from dotenv import load_dotenv
 from pathlib import Path
 import logging
@@ -184,7 +182,7 @@ async def llm_answer_handler(
                     db=db,
                     user_uuid=UUID(LLM_USER_UUID),
                     chat_id=new_message.data.chat_id,
-                    local_id=await get_last_message_local_id(db, chat_id) or 1,
+                    local_id=await get_last_message_local_id(db, chat_id) + 1 or 1,
                     text=saved_text,
                     answered_to=None,
                     user_role=Role.BOT.value,
@@ -244,27 +242,27 @@ async def restore_handler(event: GenerationRestoreEvent, redis: Redis)->AsyncGen
                 text=cached,
             )
         )
-    return
-    # last_id = event.data.last_id or "$"
-    # async for event_name, payload in subscribe_to_stream(chat_id=chat_id,redis=redis, last_id=last_id):
-    #     if event_name == "new_token":
-    #         yield NewTokenEvent(
-    #             data=NewTokenData(
-    #                 chat_id=chat_id,
-    #                 token=payload["token"],
-    #                 id=last_token_id
-    #             )
-    #         )
-    #         last_token_id += 1
-    #     elif event_name == "end_generation":
-    #         yield EndGenerationEvent(
-    #             status="ok",
-    #             data=EndGenerationData(
-    #                 chat_id=chat_id,
-    #                 details=payload.get("details", "From stream"),
-    #             )
-    #         )
-    #         break
+
+    last_id = event.data.last_id or "$"
+    async for event_name, payload in subscribe_to_stream(chat_id=chat_id,redis=redis, last_id=last_id):
+        if event_name == "new_token":
+            yield NewTokenEvent(
+                data=NewTokenData(
+                    chat_id=chat_id,
+                    token=payload["token"],
+                    id=last_token_id
+                )
+            )
+            last_token_id += 1
+        elif event_name == "end_generation":
+            yield EndGenerationEvent(
+                status="ok",
+                data=EndGenerationData(
+                    chat_id=chat_id,
+                    details=payload.get("details", "From stream"),
+                )
+            )
+            break
 
 handler_manager.register("generation_restore",restore_handler)
 handler_manager.register("new_message", message_handler, llm_answer_handler)

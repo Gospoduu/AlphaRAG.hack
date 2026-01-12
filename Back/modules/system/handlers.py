@@ -1,5 +1,5 @@
-from .events import PingEvent, PongEvent
-from .handler_manager import handler_manager
+from Back.core.events_bus.events import PingEvent, PongEvent
+from Back.core.events_bus.handler_manager import handler_manager
 
 async def ping_handler(ping: PingEvent):
     return PongEvent(

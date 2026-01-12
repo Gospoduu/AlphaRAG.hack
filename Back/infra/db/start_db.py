@@ -1,8 +1,6 @@
 import asyncio
 import os
 import sys
-from uuid import UUID
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -24,8 +22,8 @@ try:
 except ImportError:
     # Если не сработало, пробуем относительные (для локального запуска)
     from .db import engine, AsyncSessionLocal, Base
-    from ..user.models import *
-    from ..chat.models import *
+    from Back.modules.user.models import *
+    from Back.modules.chat.models import *
 
 # Загружаем .env
 env_path = Path(__file__).resolve().parent.parent / ".env"

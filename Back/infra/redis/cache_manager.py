@@ -1,8 +1,6 @@
-from enum import Enum
 from .start_redis import redis_client
 from redis.asyncio import Redis
 from typing import AsyncGenerator
-from ..events import EventBase, EventDataBase
 import asyncio
 
 async def get_redis()->AsyncGenerator[Redis]:

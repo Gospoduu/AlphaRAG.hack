@@ -1,8 +1,7 @@
-from ..events import EventDataBase, EventBase, ErrorEvent, ErrorData
+from Back.core.events_bus.events import EventDataBase, EventBase, ErrorData
 from pydantic import Field
-from datetime import datetime
 from uuid import UUID
-from .models import Role
+from Back.modules.chat import Role
 from typing import Optional
 
 # server events
@@ -81,7 +80,7 @@ class ReconnectionErrorEvent(EventBase):
     status: str = "error"
     data: ReconnectionErrorData
 
-server_events = [NewTokenEvent, EndGenerationEvent, GeneratedTextEvent ]
+server_events = [NewTokenEvent, EndGenerationEvent, GeneratedTextEvent, MessageResponseEvent ]
 client_events = [NewMessageEvent, GenerationRestoreEvent]
 server_events_dict = {e.model_fields["event"].default: e for e in server_events}
 client_events_dict = {e.model_fields["event"].default: e for e in client_events}
