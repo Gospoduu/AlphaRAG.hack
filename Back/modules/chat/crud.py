@@ -1,23 +1,26 @@
-import uuid
 
-from sqlalchemy.exc import NoResultFound
+from Back.utils.crud import safe_crud
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, and_, text
+from sqlalchemy import select, and_, text
 from .models import *
 from uuid import UUID
-from typing import Optional, List, AsyncGenerator
+from typing import Optional, List
 
 # =======System======
-async def ping_db(db: AsyncSession):
+from Back.infra.db.exc import _DB_RETRYABLE
+
+async def ping_db(db: AsyncSession) -> bool:
     try:
         await db.execute(text("SELECT 1"))
         return True
-    except NoResultFound:
+    except _DB_RETRYABLE:
         return False
+
 
 
 # =======Chats=======
 # select
+@safe_crud
 async def get_user_chats(
         db: AsyncSession,
         user_uuid: UUID)->List[Chat]:
@@ -29,7 +32,7 @@ async def get_user_chats(
     chats = result.scalars().all()
 
     return list(chats)
-
+@safe_crud
 async def get_is_generate(
         db: AsyncSession,
         chat_id: int)->Optional[bool]:
@@ -41,6 +44,7 @@ async def get_is_generate(
     return is_generate
 
 # create
+@safe_crud
 async def _create_chat_member(db: AsyncSession,
                               user_uuid: UUID,
                               chat_id: int) -> ChatMember:
@@ -48,7 +52,7 @@ async def _create_chat_member(db: AsyncSession,
     db.add(chat_member)
     await db.flush()
     return chat_member
-
+@safe_crud
 async def create_chat(db: AsyncSession,
                       user_uuid: UUID, title: str = "")-> Chat:
     chat = Chat(user_uuid=user_uuid, title=title)
@@ -59,6 +63,7 @@ async def create_chat(db: AsyncSession,
     await db.flush()
     return chat
 # patch
+@safe_crud
 async def change_is_generate(
         db: AsyncSession,
         chat_id: int,
@@ -74,6 +79,7 @@ async def change_is_generate(
     await db.flush()
     return chat
 
+@safe_crud
 async def change_title(
         db: AsyncSession,
         chat_id: int,
@@ -89,6 +95,7 @@ async def change_title(
     await db.flush()
     return chat
 # delete
+@safe_crud
 async def delete_member_by_id(
         db: AsyncSession,
         id: int)-> None:
@@ -101,6 +108,8 @@ async def delete_member_by_id(
         raise ValueError(f"Member {id} not found")
     await db.delete(member)
     await db.flush()
+
+@safe_crud
 async def delete_member_by_user_and_chat(
         db: AsyncSession,
         user_uuid: UUID,
@@ -116,6 +125,7 @@ async def delete_member_by_user_and_chat(
     await db.delete(member)
     await db.flush()
 
+@safe_crud
 async def delete_chat(db: AsyncSession,chat_id: int)-> None:
     chat = await db.execute(
         select(Chat)
@@ -138,6 +148,7 @@ async def delete_chat(db: AsyncSession,chat_id: int)-> None:
 
 # =======Messages=======
 # select
+@safe_crud
 async def get_chat_batch(
         db: AsyncSession,
         chat_id: int,
@@ -152,6 +163,8 @@ async def get_chat_batch(
     )
     batch = result.scalars().all()
     return list(batch)
+
+@safe_crud
 async def get_last_message_local_id(db: AsyncSession,chat_id: int) -> Optional[int]:
     result = await db.execute(
         select(Message.local_id)
@@ -162,6 +175,8 @@ async def get_last_message_local_id(db: AsyncSession,chat_id: int) -> Optional[i
     local_id = result.scalar_one_or_none()
     return local_id or None
 # create
+
+@safe_crud
 async def create_message(
         db: AsyncSession,
         chat_id: int,
@@ -181,6 +196,8 @@ async def create_message(
     await db.flush()
     return new_message
 # patch
+
+@safe_crud
 async def update_reaction(db: AsyncSession,
                           message_id: int,
                           react: int) -> Optional[Message]:
@@ -195,6 +212,7 @@ async def update_reaction(db: AsyncSession,
 # =======Tickets=======
 # select
 
+@safe_crud
 async def get_all_operator_tickets(
         db: AsyncSession,
         operator_uuid: UUID,
@@ -214,6 +232,8 @@ async def get_all_operator_tickets(
     return list(tickets)
 
 # create
+
+@safe_crud
 async def create_ticket(
         db: AsyncSession,
         user_uuid: UUID,
@@ -221,7 +241,6 @@ async def create_ticket(
         answered_to,
         question_text: str,
         answer_text: str,
-
 )-> Ticket:
     new_ticket = Ticket(
         user_uuid=user_uuid,
@@ -234,6 +253,8 @@ async def create_ticket(
     await db.flush()
     return new_ticket
 # patch
+
+@safe_crud
 async def update_ticket(
         db: AsyncSession,
         ticket_id: int,

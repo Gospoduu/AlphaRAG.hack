@@ -1,18 +1,33 @@
-from typing import Callable, Any, AsyncGenerator, Dict, List, Coroutine, Union
+# Back/core/events_bus/handler_manager
 
-from Back.core.events_bus.events import EventBase
+from typing import Callable,  Dict, List, Awaitable, Any
+from .events import EventBase
+import logging
 
-HandlerType = Callable[..., Union[EventBase, AsyncGenerator[EventBase, None], Coroutine[Any, Any, EventBase]]]
+logger = logging.getLogger(__name__)
+
+HandlerType = Callable[[EventBase], Awaitable[Any]]
+
 
 class HandlerManager:
     def __init__(self):
-        self.events_dict : Dict[str, List[HandlerType]] = {}
+        self.__events_dict : Dict[str, List[HandlerType]] = {}
+        logger.info(f"Handler manager initialized")
     def register(self, event: str, *handlers: HandlerType):
-        self.events_dict[event] = list(handlers)
-        print(f"Registered {event} handlers for {handlers.__ne__} ")
-    def get_handlers(self, event: str) -> List[HandlerType]:
-        return self.events_dict.get(event, [])
+        if not handlers:
+            raise ValueError("At least one handler must be provided")
+        if event in self.__events_dict:
+            raise KeyError(f"Event `{event}` already registered")
+        self.__events_dict[event] = list(handlers)
+        logger.info(f"Registered {event} handlers for {len(handlers)} events ")
+    def get(self, event: str) -> List[HandlerType]:
+        return list(self.__events_dict.get(event, []))
     def __getitem__(self, event: str) -> List[HandlerType]:
-        return self.events_dict.get(event, [])
+        if event not in self.__events_dict:
+            raise KeyError(f"Event `{event}` not registered")
+        return list(self.__events_dict[event])
+    def __contains__(self, event: str) -> bool:
+        return event in self.__events_dict
+
 handler_manager = HandlerManager()
 

@@ -7,12 +7,12 @@ from fastapi.params import Depends
 from redis.asyncio import Redis
 from Back.ws.managers import manager
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from Back.modules.chat.events import client_events_dict as chat_events
-from Back.core.events_bus.events import client_events_dict as base_events, server_events_dict
-from Back.core.events_bus.events import ErrorEvent, UnknownEventTypeErrorData, InvalidDataError
-from Back.infra.db import get_db
+# from Back.modules.chat.events import
+from Back.core.events_bus.events import ErrorEvent, ErrorCode
+from Back.infra.db.db import get_db
 from uuid import UUID
-from Back.infra.redis import get_redis
+from Back.infra.redis.cache_manager import get_redis
+from ..core.events_bus.event_manager import event_manager
 from sqlalchemy.ext.asyncio import AsyncSession
 from Back.infra.redis.streams import add_new_cmd, subscribe_to_emit_stream
 from pydantic import ValidationError
@@ -21,14 +21,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["user_ws"])
 
-client_events = chat_events | base_events
 
 async def ws_to_redis_loop(websocket:WebSocket, user_uuid: UUID, r: Redis):
     while True:
         error_flag = False
-        err = ErrorEvent(
-            data=InvalidDataError(details="If you see this message - is very strange")
-        )
+        err = ErrorEvent.create_error_event(code=ErrorCode.INVALID_DATA,details="If you see this message - is very strange")
+
         try:
             event_json = await websocket.receive_json()
         except WebSocketDisconnect:
@@ -47,20 +45,17 @@ async def ws_to_redis_loop(websocket:WebSocket, user_uuid: UUID, r: Redis):
             event_type = event_json.get("event")
             if not event_type:
                 logger.error(f"WS UNKNOWN EVENT TYPE: {event_type}")
-                err = ErrorEvent(
-                    data=InvalidDataError(details="Missing 'event' field in message")
-                )
+                err = ErrorEvent.create_error_event(code=ErrorCode.INVALID_DATA,details="Missing 'event' field in message")
                 await manager.send_event(user_uuid, err)
                 continue
-            event_cls = client_events.get(event_type)
+            event_cls = event_manager.get(event_type)
             if event_cls is None:
                 logger.error(f"WS UNKNOWN EVENT TYPE: {event_type}")
-                err = ErrorEvent(
-                    data=UnknownEventTypeErrorData(details=f"Unknown event type: {event_type}")
-                )
+                err = ErrorEvent.create_error_event(ErrorCode.UNKNOWN_EVENT,details=f"Unknown event type: {event_type}")
+
                 await manager.send_event(user_uuid, err)
                 continue
-            event = event_cls(**event_json)
+            event = event_cls.from_dict(event_json)
             # Payload validation is intentionally relaxed for API iteration phase.
             # In production, catch ValidationError explicitly and return structured errors.
             logger.info(f"Received event: {event_type}")
@@ -68,13 +63,13 @@ async def ws_to_redis_loop(websocket:WebSocket, user_uuid: UUID, r: Redis):
         except ValidationError as e:
             error_flag = True
             logger.error(f"WS JSON EVENT ERROR: {str(e)}")
-            err = ErrorEvent(data=InvalidDataError(details=str(e)))
+            err = ErrorEvent.create_error_event(ErrorCode.UNKNOWN_EVENT,details=str(e))
         except asyncio.CancelledError:
             raise
         except Exception as e:
             error_flag = True
             logger.error(f"Unexpected WS runtime error {str(e)}")
-            err = ErrorEvent(data=InvalidDataError(details=str(e)))
+            err = ErrorEvent.create_error_event(ErrorCode.UNKNOWN_EVENT,details=str(e))
         if error_flag:
             try:
                 await manager.send_event(user_uuid, err)
@@ -91,7 +86,7 @@ async def ws_from_redis_loop(user_uuid: UUID, r: Redis):
             logger.error(f"Bad redis payload json: {e}")
             continue
         logger.info(f"Received event: {event_name}")
-        event_cls = server_events_dict.get(event_name)
+        event_cls = event_manager.get(event_name)
         if event_cls is None:
             logger.error(f"WS UNKNOWN EVENT TYPE: {event_name}")
             continue

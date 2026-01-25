@@ -1,7 +1,8 @@
+# Back/modules/chat/streams.py
+
 from Back.core.events_bus.events import EventBase
+from Back.infra.redis.safe import xadd_safe, xread_safe, xrange_safe
 from redis.asyncio import Redis
-from Back.utils.redis import to_serializable
-import json
 
 
 # =================== chat_stream =====================
@@ -12,10 +13,10 @@ async def add_new_chat_stream(
     chat_id: int,
     event: EventBase,
     redis: Redis,
-):
+)->str:
     key = _get_stream_key(chat_id)
     event_type = event.event
-    await redis.xadd(key, {"event": event_type, "payload": json.dumps(event.model_dump(), default=to_serializable)})
+    return await xadd_safe(redis, key, {"event": event_type, "payload": event.to_json()})
 
 async def subscribe_to_chat_stream(
         chat_id: int,
@@ -25,15 +26,20 @@ async def subscribe_to_chat_stream(
     stream_key = _get_stream_key(chat_id)
 
     while True:
-        resp = await redis.xread(streams={stream_key: last_id},
-                                 count=None,
-                                 block=5_000)
+        resp = await xread_safe(redis,streams={stream_key: last_id}, block=5_000)
         if not resp:
             continue
         _, entries = resp[0]
         for entry_id, entry_data in entries:
-            event_name = entry_data["event"]
-            yield entry_id, event_name, entry_data
+            yield entry_id, entry_data
             last_id = entry_id
+async def read_chat_stream_since(chat_id: int, redis: Redis, last_id: str = "0-0", limit: int = 500):
+    """
+    Одноразово читает события строго ПОСЛЕ last_id.
+    Возвращает список (entry_id, entry_data)
+    """
+    key = _get_stream_key(chat_id)
+    start = f"({last_id}"  # exclusive
+    return await xrange_safe(redis,key, min=start, max="+", count=limit)
 # ==============================================================
 

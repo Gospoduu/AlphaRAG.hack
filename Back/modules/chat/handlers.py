@@ -1,31 +1,34 @@
-from collections.abc import Callable
+# Back/modules/chat/handlers
+
 from typing import AsyncGenerator, Dict
 from redis.asyncio import Redis
-from Back.infra.redis.streams import add_generated_token, delete_generated_text, check_generated_text, change_chat_status, check_chat_status, GenerationStatus, update_generated_text, ensure_redis_connection
-from Back.core.events_bus.events import EventBase
-from Back.core.events_bus.handler_manager import handler_manager
-from Back.modules.chat.events import NewMessageEvent, GenerationRestoreEvent
-from Back.modules.chat.events import NewTokenEvent, NewTokenData, EndGenerationEvent, MessageResponseEvent, MessageResponseData, GeneratedTextEvent, GeneratedTextData, EndGenerationData, ReconnectionErrorEvent, ReconnectionErrorData
+from Back.core.events_bus.handler_policy import with_policy
+from Back.core.events_bus.events import ErrorEvent, ErrorCode
+from Back.modules.chat.events import NewMessageEvent, GenerationRestoreEvent, NewTokenEvent, NewTokenData, EndGenerationEvent, NewMessageResponseEvent, NewMessageResponseData, GeneratedTextEvent, GeneratedTextData, EndGenerationData
 import asyncio
-from .crud import create_message, get_last_message_local_id, change_is_generate
+from . import crud
+from .streams import add_new_chat_stream, read_chat_stream_since
+from Back.infra.redis.streams import add_new_emit
 from sqlalchemy.ext.asyncio import AsyncSession
 from Back.modules.user.models import Role
 from  uuid import UUID
-from Back.core.events_bus.events import ErrorEvent, InvalidDataError, ConnectionErrorData
-from Back.infra.redis.streams import set_awaited_message, subscribe_to_stream, add_token_to_stream, add_end_to_stream
 from dotenv import load_dotenv
 from pathlib import Path
 import logging
 import os
 
+from ...core.events_bus.event_manager import event_manager
+from ...core.exc import RetryableError
+
 logger = logging.getLogger(__name__)
 
 env_path = Path(__file__).resolve().parent.parent / ".env"
-print("🔍 Ищу .env по пути:", env_path)
 load_dotenv(dotenv_path=env_path)
 
-LLM_USER_UUID = os.getenv("LLM_USER_UUID")
-print("📦 LLM_USER_UUID =", LLM_USER_UUID)
+LLM_USER_UUID = UUID(os.getenv("LLM_USER_UUID"))
+logger.info("LLM_USER_UUID=%s", LLM_USER_UUID)
+
+
 
 async def llm_answer_plug(prompt: str):
     ans = f"Тут мог быть ответ ЛЛМ на этот промпт: `{prompt}`\n"
@@ -34,236 +37,161 @@ async def llm_answer_plug(prompt: str):
         yield ans[s - 1] + ans[s]
 
 
-
+@with_policy()
 async def message_handler(
-        message: NewMessageEvent,
-        db: AsyncSession)-> EventBase:
+        new_message: NewMessageEvent,
+        redis: Redis,
+        db: AsyncSession)-> None:
     try:
-        last_message_local_id = await get_last_message_local_id(
-            db,
-            message.data.chat_id
-        ) or 0
-        new_message =  await create_message(
+        updated_local_id = await crud.get_last_message_local_id(db=db, chat_id=new_message.data.chat_id) or 0
+        updated_local_id+=1
+        message_model = await crud.create_message(
             db=db,
-            user_uuid=message.data.user_uuid,
-            chat_id=message.data.chat_id,
-            local_id=last_message_local_id + 1,
-            text=message.data.text,
-            user_role=Role.USER.value,
+            chat_id=new_message.data.chat_id,
+            text=new_message.data.text,
+            user_uuid=new_message.data.user_uuid,
+            answered_to=new_message.data.answered_to,
+            local_id=updated_local_id,
+
+        )
+        message_response_event = NewMessageResponseEvent(
+            data=NewMessageResponseData(
+                id=message_model.id,
+                chat_id=new_message.data.chat_id,
+                text=new_message.data.text,
+                answered_to=new_message.data.answered_to,
+                user_uuid=new_message.data.user_uuid,
+                local_id=updated_local_id,
+            )
         )
         await db.commit()
-        print(f"✅ Message saved: {new_message.id}, {new_message.text}")
-        return MessageResponseEvent(
-            data=MessageResponseData(
-                id=new_message.id,
-                text=new_message.text,
-                user_uuid=new_message.user_uuid,
-                chat_id=new_message.chat_id,
-                user_role=new_message.user_role,
-                answered_to=new_message.answered_to,
-                local_id=new_message.local_id,
-            )
-        )
-    except ConnectionError:
-        await db.rollback()
-        return ErrorEvent(
-            data=ConnectionErrorData(details="Database connection lost.")
-        )
-    except AttributeError as e:
-        await db.rollback()
-        return ErrorEvent(
-            data=InvalidDataError(
-                details=f"Invalid message data structure: {str(e)}. Got: {message.data.model_dump()}"
-            )
-        )
+        await add_new_emit(redis=redis, event=message_response_event, user_uuid=new_message.data.user_uuid)
     except Exception as e:
-        print(f"❌ Error in message_handler: {str(e)}")
-        await db.rollback()
-        return ErrorEvent(data=InvalidDataError(details=str(e)))
+        try:
+            await db.rollback()
+            await add_new_emit(redis=redis, event=ErrorEvent.create_error_event(ErrorCode.HANDLER_ERROR, str(e)), user_uuid=new_message.data.user_uuid)
+            logger.error("", exc_info=True)
+        except Exception:
+            logger.error("Failed to send error message", exc_info=True)
+        raise
 
+@with_policy()
 async def llm_answer_handler(
         new_message: NewMessageEvent,
-        data_flags: Dict[str, bool],
         db: AsyncSession,
         redis: Redis,
-        llm_answer_generator: Callable = llm_answer_plug,
-)->AsyncGenerator[EventBase, None]:
-    print(f"🔍 llm_answer_handler: {new_message.data.chat_id}, {new_message.data.text}")  # Логирование текста сообщения
-
-    prompt = new_message.data.text
-    chat_id = new_message.data.chat_id
-
-    details = "Generation end's correct."
-    was_error = False
-    redis_failed = False
-    saved_text = ""
-    redis_retry = True
-    status = "ok"
-    data_flags["is_saved_in_db"] = False
-    data_flags["is_saved_in_redis"] = False
-    is_saved_in_redis = False
-    is_saved_in_db = False
-    new_token_id = 0
+)->None:
     try:
-        try:
-            await change_chat_status(
-                chat_id,
-                GenerationStatus.IN_PROGRESS.value,
-                redis
-            )
-        except Exception as e:
-            logger.warning(f"Redis unavailable when setting status: {e}")
-            redis_failed = True
+        await crud.change_is_generate(db=db, chat_id=new_message.data.chat_id, new_is_generate=True)
+        await db.commit()
+        prompt = new_message.data.text
+        token_id = 0
 
-        try:
-            await change_is_generate(db, chat_id, True)
-            await db.commit()
-        except Exception as e:
-            logger.exception("Failed to set DB is_generate")
-            details = f"DB failure when marking generation start: {e}"
-            was_error = True
-            status = "fatal"
-            raise ConnectionError(details)
-        try:
-            if await check_chat_status(chat_id, redis) == GenerationStatus.IN_PROGRESS.value:
-                cached = await check_generated_text(chat_id, redis)
-                if cached:
-                    saved_text = cached
-                    yield GeneratedTextEvent(
-                        data=GeneratedTextData(
-                            chat_id=chat_id,
-                            text=saved_text
-                        )
-                    )
-        except Exception as e:
-            logger.info("No cached text / Redis read failed: {e}")
-            redis_failed = True
-        print("🔄 Generating text...")
-        async for token in llm_answer_generator(prompt):
-            print(f"Generated token: {token}")
-            saved_text += token
-            try:
-                if redis_failed and redis_retry:
-                    redis_retry = False
-                    if await ensure_redis_connection(redis):
-                        redis_failed = False
-                        await update_generated_text(saved_text, chat_id, redis)
-                        await change_chat_status(chat_id, GenerationStatus.IN_PROGRESS.value, redis)
-                    redis_retry = True
-                else:
-                    await add_generated_token(token, chat_id, redis)
-                    await add_token_to_stream(token, chat_id, redis)
-            except Exception as e:
-                logger.exception(f"Failed to add generated token: {e}")
-                print(f"❌ Failed to add generated token: {e}")
-                redis_failed = True
-
-            yield NewTokenEvent(
-
+        ans = ""
+        async for token in llm_answer_plug(prompt):
+            token_event = NewTokenEvent(
                 data=NewTokenData(
+                    id=token_id,
                     token=token,
-                    chat_id=chat_id,
-                    id=new_token_id,
-                )
-            )
-            new_token_id += 1
-    except ConnectionError as e:
-        print(f"❌ Error during generation: {str(e)}")
-        logger.exception(f"DB failure when marking generation start: {e}")
-        was_error = True
-        status="error"
-    except Exception as e:
-        logger.exception(f"Generation error: {e}")
-        status = "error"
-        was_error = True
-    finally:
-        if not was_error:
-            generated_message = await create_message(
-                    db=db,
-                    user_uuid=UUID(LLM_USER_UUID),
                     chat_id=new_message.data.chat_id,
-                    local_id=await get_last_message_local_id(db, chat_id) + 1 or 1,
-                    text=saved_text,
-                    answered_to=None,
-                    user_role=Role.BOT.value,
                 )
-
-            try:
-                await db.commit()
-                await change_is_generate(db, chat_id, False)
-                data_flags["is_saved_in_db"] = True
-                is_saved_in_db = True
-            except Exception as e:
-                print(f"❌ Failed to create message: {e}")
-                logger.exception(f"Failed to create message: {e}")
-            try:
-                if is_saved_in_db:
-                    await set_awaited_message(generated_message, redis)
-                    data_flags["is_saved_in_redis"] = True
-                    is_saved_in_redis = True
-                await add_end_to_stream("Generation end's correctly", chat_id, redis)
-                await change_chat_status(chat_id, GenerationStatus.FINISHED, redis)
-                await delete_generated_text(chat_id, redis)
-
-            except Exception as e:
-                logger.exception(f"Failed to set awaited message: {e}")
-                details = f"Cache failure when setting awaited message: {e}"
-
-        if not (is_saved_in_redis or is_saved_in_db):
-            status = "fatal"
-
-        yield EndGenerationEvent(
-            status=status,
+            )
+            last_id=await add_new_chat_stream(redis=redis, event=token_event, chat_id=new_message.data.chat_id)
+            token_event.meta["last_id"] = last_id
+            await add_new_emit(redis=redis, event=token_event, user_uuid=new_message.data.user_uuid)
+            logger.debug(f"Token {token}, id {token_id} was added")
+            ans+=token
+            token_id += 1
+        end_generation_event = EndGenerationEvent(
             data=EndGenerationData(
-                chat_id=chat_id,
-                details=details,
+                chat_id=new_message.data.chat_id,
+                details="Generation ends successfully",
             )
         )
-async def restore_handler(event: GenerationRestoreEvent, redis: Redis)->AsyncGenerator[EventBase, None]:
-    chat_id = event.data.chat_id
-    last_token_id = event.data.last_token_id or 0
-    status = await check_chat_status(chat_id, redis)
-    if status != GenerationStatus.IN_PROGRESS.value:
-        # генерация уже не идёт
-        yield ReconnectionErrorEvent(
-            data=ReconnectionErrorData(
 
-                chat_id=chat_id,
-                details="Generation is not in progress",
-            )
+        await add_new_emit(redis=redis, event=end_generation_event, user_uuid=new_message.data.user_uuid)
+        updated_local_id = await crud.get_last_message_local_id(db=db, chat_id=new_message.data.chat_id) or 0
+        updated_local_id += 1
+        await crud.create_message(
+            db=db,
+            chat_id=new_message.data.chat_id,
+            text=ans,
+            user_uuid=LLM_USER_UUID,
+            answered_to=None,
+            local_id=updated_local_id,
+            user_role=Role.BOT,
         )
-        return
-    cached = await check_generated_text(chat_id, redis)
-    if cached:
-        print(f"Cached: {cached}")
-        yield GeneratedTextEvent(
+        await db.commit()
+        logger.info(f"Generation chat {new_message.data.chat_id} ends successfully ")
+
+    except Exception:
+        logger.error(f"Generation chat {new_message.data.chat_id} failed", exc_info=True)
+        try:
+            await add_new_emit(redis=redis, event=ErrorEvent.create_error_event(ErrorCode.HANDLER_ERROR, "Failed generation"), user_uuid=new_message.data.user_uuid)
+        except Exception:
+            logger.error(f"Failed to send error message to redis, chat_id {new_message.data.chat_id}", exc_info=True)
+        raise
+
+    finally:
+        try:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            await crud.change_is_generate(db=db, chat_id=new_message.data.chat_id, new_is_generate=False)
+            await db.commit()
+        except Exception:
+            logger.error("Failed to change chat generation status", exc_info=True)
+
+@with_policy(retry=True)
+async def restore_handler(event: GenerationRestoreEvent, redis: Redis, db: AsyncSession)->None:
+    try:
+        chat_id = event.data.chat_id
+        last_id = event.data.last_id or "0-0"
+        cached = await read_chat_stream_since(chat_id, redis, last_id)
+        parts = []
+        if not cached:
+            return
+        last_seen_id = last_id
+        last_seen_token_id = None
+        for entry_id, entry_data in cached:
+            event_name = entry_data.get("event")
+            payload = entry_data.get("payload")
+            if not event_name or not payload:
+                continue
+            if event_name != NewTokenEvent.event:
+                logger.warning(f"Event {event_name} was ignored in restore handler")
+                continue
+            event_cls = event_manager.get(event_name)
+            if event_cls is None:
+                logger.warning("Unknown event in restore handler: %s", event_name)
+                continue
+            try:
+                parsed_token = event_cls.from_json(payload)
+            except Exception:
+                logger.warning("Bad token payload in restore handler: entry_id=%s", entry_id, exc_info=True)
+                continue
+            token_text = parsed_token.data.token
+            parts.append(token_text)
+            last_seen_id = entry_id
+            last_seen_token_id = parsed_token.data.id
+
+        if not parts:
+            return
+        restore_event =  GeneratedTextEvent(
             data=GeneratedTextData(
                 chat_id=chat_id,
-                text=cached,
+                text="".join(parts),
             )
         )
+        restore_event.meta["last_id"] = last_seen_id
+        restore_event.meta["last_token_id"] = last_seen_token_id
 
-    last_id = event.data.last_id or "$"
-    async for event_name, payload in subscribe_to_stream(chat_id=chat_id,redis=redis, last_id=last_id):
-        if event_name == "new_token":
-            yield NewTokenEvent(
-                data=NewTokenData(
-                    chat_id=chat_id,
-                    token=payload["token"],
-                    id=last_token_id
-                )
-            )
-            last_token_id += 1
-        elif event_name == "end_generation":
-            yield EndGenerationEvent(
-                status="ok",
-                data=EndGenerationData(
-                    chat_id=chat_id,
-                    details=payload.get("details", "From stream"),
-                )
-            )
-            break
-
-handler_manager.register("generation_restore",restore_handler)
-handler_manager.register("new_message", message_handler, llm_answer_handler)
-
+        await add_new_emit(redis=redis, event=restore_event, user_uuid=event.data.user_uuid)
+    except Exception:
+        logger.error(f"Restore generation for chat: {event.data.chat_id} failed", exc_info=True)
+        try:
+            await add_new_emit(redis=redis, event=ErrorEvent.create_error_event(ErrorCode.HANDLER_ERROR, "Failed restщку generation"), user_uuid=event.data.user_uuid)
+        except Exception:
+            logger.error(f"Failed to send error message to redis, chat_id {event.data.chat_id}", exc_info=True)
+        raise

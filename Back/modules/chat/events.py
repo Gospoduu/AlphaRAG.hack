@@ -1,7 +1,7 @@
 from Back.core.events_bus.events import EventDataBase, EventBase, ErrorData
 from pydantic import Field
 from uuid import UUID
-from Back.modules.chat import Role
+from Back.modules.chat.models import Role
 from typing import Optional
 
 # server events
@@ -14,7 +14,7 @@ class EndGenerationData(EventDataBase):
     chat_id: int
     details: str
 
-class MessageResponseData(EventDataBase):
+class NewMessageResponseData(EventDataBase):
     id: int
     local_id: int
     chat_id: int
@@ -28,9 +28,9 @@ class GeneratedTextData(EventDataBase):
     text: str
 
 class GenerationRestoreData(EventDataBase):
+    user_uuid: UUID
     last_id: str | None = None
     chat_id: int
-    last_token_id: int | None = None
 
 class GenerationRestoreEvent(EventBase):
     event: str = "generation_restore"
@@ -42,10 +42,10 @@ class GeneratedTextEvent(EventBase):
     event: str = "generated_text"
     data: GeneratedTextData
 
-class MessageResponseEvent(EventBase):
+class NewMessageResponseEvent(EventBase):
     event: str = "message_response"
     status: str = "ok"
-    data: MessageResponseData
+    data: NewMessageResponseData
 
 
 class NewTokenEvent(EventBase):
@@ -71,18 +71,3 @@ class NewMessageEvent(EventBase):
     event: str = "new_message"
     status: str = "ok"
     data: NewMessageData
-
-class ReconnectionErrorData(ErrorData):
-    details: str
-    chat_id: int
-class ReconnectionErrorEvent(EventBase):
-    event: str = "reconnection_error"
-    status: str = "error"
-    data: ReconnectionErrorData
-
-server_events = [NewTokenEvent, EndGenerationEvent, GeneratedTextEvent, MessageResponseEvent ]
-client_events = [NewMessageEvent, GenerationRestoreEvent]
-server_events_dict = {e.model_fields["event"].default: e for e in server_events}
-client_events_dict = {e.model_fields["event"].default: e for e in client_events}
-
-

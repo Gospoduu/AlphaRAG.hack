@@ -1,10 +1,23 @@
-from Back.core.events_bus.events import PingEvent, PongEvent
-from Back.core.events_bus.handler_manager import handler_manager
+# Back/modules/system/handlers.py
 
-async def ping_handler(ping: PingEvent):
-    return PongEvent(
-        status="ok"
-    )
+from .events import PingEvent, PongEvent, PongData
+from Back.core.events_bus.handler_policy import with_policy
+from Back.infra.redis.streams import add_new_emit
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+from logging import getLogger
 
+logger = getLogger(__name__)
 
-handler_manager.register("ping", ping_handler)
+@with_policy()
+async def ping_handler(ping: PingEvent, redis: Redis, db: AsyncSession):
+    try:
+        pong =  PongEvent(
+            data=PongData(
+                user_uuid=ping.data.user_uuid,
+            )
+        )
+        await add_new_emit(user_uuid=ping.data.user_uuid, redis=redis, event=pong)
+    except Exception:
+        logger.exception("Ping handler failed for user %s", ping.data.user_uuid)
+        raise

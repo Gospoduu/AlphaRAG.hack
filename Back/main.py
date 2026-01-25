@@ -10,7 +10,6 @@ from Back.infra.redis.cache_manager import redis_is_fine, get_redis
 from Back.modules.user.api import router as user_router
 from Back.ws.ws import router as user_ws_router
 from Back.modules.chat.api import router as chat_router
-from Back.register_handlers import register_all_handlers
 from Back.core.events_bus.handler_manager import handler_manager
 from fastapi.staticfiles import StaticFiles
 
@@ -51,7 +50,6 @@ for route in app.routes:
     print("ROUTE:", route.path, getattr(route, "methods", None), type(route))
 
 if __name__ == "__main__":
-    register_all_handlers(handler_manager)
     uvicorn.run("Back.main.main:app",
                 host="0.0.0.0",
                 port=8000,

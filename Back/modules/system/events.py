@@ -1,20 +1,21 @@
+# Back/modules/system/events.py
+
 from Back.core.events_bus.events import EventBase, EventDataBase
-from pydantic import Field
+from uuid import UUID
 
 class PongData(EventDataBase):
-    pass
+    user_uuid: UUID
+
 
 class PongEvent(EventBase):
     event: str = "pong"
-    status: str
-    data: PongData = Field(
-        default_factory=PongData,
-    )
+    status: str = "ok"
+    data: PongData
 
 class PingData(EventDataBase):
-    pass
+    user_uuid: UUID
 
 class PingEvent(EventBase):
     event: str = "ping"
     status: str = "ok"
-    data: PingData = Field(default_factory=PingData)
+    data: PingData

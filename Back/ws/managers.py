@@ -4,13 +4,6 @@ from enum import Enum
 from uuid import UUID
 from Back.core.events_bus.events import EventBase
 
-class EventType(str, Enum):
-    NEW_TOKEN = "new_token"
-    END_GENERATION = "end_generation"
-    OPERATOR_MESSAGE = "operator_message"
-    PING = "ping"
-    PONG = "pong"
-
 class ConnectionManager:
     def __init__(self):
         self.active_connections : Dict[str, WebSocket] = {}
