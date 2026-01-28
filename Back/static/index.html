@@ -5,40 +5,287 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>WebSocket Chat</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    #layout { display: flex; gap: 20px; }
-    #sidebar { width: 250px; }
-    #chat { flex: 1; }
-    #messages { list-style-type: none; padding: 0; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; }
-    #messages li { padding: 5px; border-bottom: 1px solid #eee; font-size: 14px; white-space: pre-wrap; }
-    .hidden { display: none; }
-    .label { font-weight: bold; }
-    .row { margin-bottom: 10px; }
-    .msg-num { color: #888; font-size: 12px; margin-right: 6px; }
-    .msg-meta { color: #666; font-size: 12px; margin-left: 6px; }
-    .msg-role { font-weight: bold; }
+    :root{
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --border: #e5e7eb;
+  --text: #111827;
+  --muted: #6b7280;
 
-    input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; }
-    button { padding: 5px 10px; margin-left: 5px; }
-    select { width: 100%; padding: 4px; }
-    small.muted { color: #777; font-size: 12px; }
+  --bubble-user: #dbeafe;   /* light blue */
+  --bubble-bot: #ffffff;    /* white */
+  --bubble-border: #e5e7eb;
+
+  --accent: #10a37f;        /* “chatgpt green” */
+  --accent-hover: #0e8d6e;
+
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.06);
+    }
+
+    * { box-sizing: border-box; }
+
+    body{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    #topbar{
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 16px 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    #topbar .row{ margin: 0; }
+
+    h1{
+      font-size: 18px;
+      font-weight: 700;
+      margin: 18px auto 10px;
+      max-width: 1100px;
+      padding: 0 16px;
+    }
+
+    h2{ margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 700; }
+    h3{ margin: 14px 0 8px; font-size: 13px; color: var(--muted); font-weight: 700; }
+
+    .label{ color: var(--muted); font-weight: 700; }
+    small.muted{ color: var(--muted); }
+
+    .row{ margin: 10px 0; }
+
+    #layout{
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 16px 18px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+    }
+
+    #sidebar, #chat{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 14px;
+    }
+
+    #user-creation{
+      max-width: 1100px;
+      margin: 10px auto 0;
+      padding: 0 16px 16px;
+    }
+
+    #user-creation > h2{
+      margin: 12px 0 10px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    #chatSelect{
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: #fff;
+      outline: none;
+    }
+    #chatSelect:focus{ border-color: rgba(16,163,127,.35); box-shadow: 0 0 0 4px rgba(16,163,127,.12); }
+
+    /* buttons */
+    button{
+      appearance: none;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--text);
+      padding: 9px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-weight: 700;
+      transition: transform .02s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    button:hover{ border-color: #d1d5db; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
+    button:active{ transform: translateY(1px); }
+
+    /* primary кнопка — можно применять через класс, но ниже мы подсветим кнопки отправки */
+    button.primary{
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+    }
+    button.primary:hover{ background: var(--accent-hover); }
+
+    /* inputs */
+    input[type="text"], select{
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+      font-size: 14px;
+    }
+    input[type="text"]:focus{
+      border-color: rgba(16,163,127,.35);
+      box-shadow: 0 0 0 4px rgba(16,163,127,.12);
+    }
+
+    /* composer row */
+    #chat .row:nth-of-type(2){
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    #messageInput{
+      flex: 1;
+    }
+    #chat .row:nth-of-type(2) button{
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent;
+      min-width: 110px;
+    }
+    #chat .row:nth-of-type(2) button:hover{ background: var(--accent-hover); }
+
+    /* messages container */
+    #messages{
+      list-style: none;
+      padding: 12px;
+      margin: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-height: 520px;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+
+    /* individual message */
+
+    #messages li{
+      margin: 10px 0;
+      white-space: pre-wrap;
+    }
+
+
+    /* hide numbering / meta (оставим, но сделаем менее заметным) */
+    .msg-num{
+      color: #9ca3af;
+      font-size: 11px;
+      min-width: 34px;
+      text-align: right;
+      margin-right: 6px;
+    }
+    .msg-role{
+      font-weight: 800;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* bubble */
+    #messages li > span:last-child,
+    #messages li > span:nth-last-child(1){
+      /* на случай если у тебя другой порядок span-ов */
+    }
+
+    #messages li span{
+      line-height: 1.35;
+    }
+
+    /* bubble wrapper (мы не можем легко обернуть без JS, поэтому стилями “притворимся” пузырём на li) */
+    #messages li{
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--bubble-border);
+      background: var(--bubble-bot);
+      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+    }
+
+    /* user vs bot */
+    #messages li:has(.msg-role){
+      /* оставим как есть */
+    }
+
+    /* эвристика: если текст начинается с "YOU:" — считаем user */
+    #messages li:has(span:last-child){
+      /* no-op; pseudo selectors ниже */
+    }
+
+    /* user bubble when you displayMessage("YOU: ...") */
+    #messages li:has(span:nth-child(2)):has(span:nth-child(3)) {
+      /* no-op */
+    }
+    #messages li:has(span:nth-child(2)) {}
+
+    /* Реальная эвристика по содержимому через attribute невозможно,
+       поэтому дадим простой вариант: используем kind=msg и kind=stream,
+       а user/bot различаем по префиксу в displayMessage и в loadMessages. */
+
+    /* stream bubble */
+    #messages li[data-kind="stream"]{
+      background: #fff7ed; /* лёгкий “тёплый” для стрима */
+      border-color: #fed7aa;
+    }
+
+    /* чуть более “чатовый” вид для истории (ASC) — если роль USER/ADMIN */
+    #messages li:has(.msg-role){
+      padding-left: 12px;
+    }
+
+    /* Если роль USER (из истории) — подвинем вправо */
+    #messages li:has(.msg-role):has(.msg-role){
+      /* мы не можем проверить текст "USER" чисто CSS надёжно,
+         поэтому ниже — универсально: если хочешь прям красиво, добавь 2 строки JS (см. пункт 2). */
+    }
+
+    /* scrollbar */
+    #messages::-webkit-scrollbar{ width: 10px; }
+    #messages::-webkit-scrollbar-thumb{
+      background: #e5e7eb;
+      border-radius: 999px;
+      border: 2px solid #fafafa;
+    }
+    #messages::-webkit-scrollbar-thumb:hover{ background: #d1d5db; }
+
+    /* responsive */
+    @media (max-width: 880px){
+      #layout{ grid-template-columns: 1fr; }
+      #messages{ max-height: 420px; }
+    }
+    #messages li[data-role="user"]{
+  margin-left: auto;
+  background: var(--bubble-user);
+  border-color: #bfdbfe;
+    }
+    #messages li[data-role="bot"]{
+      margin-right: auto;
+      background: var(--bubble-bot);
+    }
+    #messages li[data-role="user"] .msg-role{ color: #1d4ed8; }
+    #messages li[data-role="bot"] .msg-role{ color: var(--muted); }
 
   </style>
 </head>
 <body>
 <h1>WebSocket Chat (тестовый фронт)</h1>
-<div class="row">
-  <span class="label">UUID:</span>
-  <span id="sidebarUserUuid">—</span>
-</div>
 
-<div class="row">
-  <button onclick="createChat()">Создать чат</button>
-</div>
+    <div id="topbar">
+      <div class="row">
+        <span class="label">UUID:</span>
+        <span id="sidebarUserUuidTop">—</span>
 
-<div class="row">
-  <button onclick="logout()">Выйти</button>
-</div>
+      </div>
+
+      <div class="row">
+        <button onclick="createChat()">Создать чат</button>
+      </div>
+
+      <div class="row">
+        <button onclick="logout()">Выйти</button>
+      </div>
+    </div>
 
 <div id="user-creation">
   <h2>1. Создание пользователя</h2>
@@ -68,7 +315,8 @@
 
       <div class="row">
         <span class="label">UUID:</span>
-        <span id="sidebarUserUuid">—</span>
+        <span id="sidebarUserUuidSide">—</span>
+
       </div>
 
       <div class="row">
@@ -195,13 +443,15 @@
 
   // ---------------- UI helpers ----------------
   function ensureStreamLine() {
-    const list = document.getElementById('messages');
-    if (!currentBotMessageEl) {
-      currentBotMessageEl = document.createElement('li');
-      currentBotMessageEl.dataset.kind = 'stream';
-      list.appendChild(currentBotMessageEl);
+      const list = document.getElementById('messages');
+      if (!currentBotMessageEl) {
+        currentBotMessageEl = document.createElement('li');
+        currentBotMessageEl.dataset.kind = 'stream';
+        currentBotMessageEl.dataset.role = 'bot'; // <-- добавь это
+        list.appendChild(currentBotMessageEl);
+      }
     }
-  }
+
 
   function scrollToBottom() {
     const list = document.getElementById('messages');
@@ -236,7 +486,8 @@
     if (savedUserUuid) {
       userUuid = savedUserUuid;
       document.getElementById('userUuidValue').textContent = userUuid;
-      document.getElementById('sidebarUserUuid').textContent = userUuid;
+      document.getElementById('sidebarUserUuidTop').textContent = userUuid;
+      document.getElementById('sidebarUserUuidSide').textContent = userUuid;
 
       document.getElementById('user-creation').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
@@ -495,6 +746,8 @@
       li.appendChild(textSpan);
 
       list.appendChild(li);
+      li.dataset.role = (msg.user_role || 'user').toLowerCase() === 'user' ? 'user' : 'bot';
+
     });
 
     scrollToBottom();
@@ -522,7 +775,8 @@
       localStorage.setItem(LS_USER_KEY, userUuid);
 
       document.getElementById('userUuidValue').textContent = userUuid;
-      document.getElementById('sidebarUserUuid').textContent = userUuid;
+      document.getElementById('sidebarUserUuidTop').textContent = userUuid;
+      document.getElementById('sidebarUserUuidSide').textContent = userUuid;
       document.getElementById('user-creation').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
 
@@ -607,28 +861,32 @@
 
   // ---------------- display message ----------------
   function displayMessage(message, opts = {}) {
-    const messageList = document.getElementById('messages');
+      const messageList = document.getElementById('messages');
 
-    const items = Array.from(messageList.querySelectorAll('li'));
-    const onlyNonStream = items.filter(li => li.dataset.kind !== 'stream');
-    const num = onlyNonStream.length + 1;
+      const items = Array.from(messageList.querySelectorAll('li'));
+      const onlyNonStream = items.filter(li => li.dataset.kind !== 'stream');
+      const num = onlyNonStream.length + 1;
 
-    const li = document.createElement('li');
-    li.dataset.kind = opts.kind || 'msg';
+      const li = document.createElement('li');
+      li.dataset.kind = opts.kind || 'msg';
 
-    const numSpan = document.createElement('span');
-    numSpan.className = 'msg-num';
-    numSpan.textContent = `#${num}`;
+      const isUser = (typeof message === 'string' && message.startsWith('YOU:'));
+      li.dataset.role = isUser ? 'user' : 'bot';
 
-    const textSpan = document.createElement('span');
-    textSpan.textContent = message;
+      const numSpan = document.createElement('span');
+      numSpan.className = 'msg-num';
+      numSpan.textContent = `#${num}`;
 
-    li.appendChild(numSpan);
-    li.appendChild(textSpan);
+      const textSpan = document.createElement('span');
+      textSpan.textContent = isUser ? message.replace(/^YOU:\s*/, '') : message;
 
-    messageList.appendChild(li);
-    scrollToBottom();
-  }
+      li.appendChild(numSpan);
+      li.appendChild(textSpan);
+
+      messageList.appendChild(li);
+      scrollToBottom();
+    }
+
 
   // ---------------- logout ----------------
   function logout() {
@@ -647,7 +905,9 @@
     document.getElementById('app').classList.add('hidden');
 
     document.getElementById('userUuidValue').textContent = '—';
-    document.getElementById('sidebarUserUuid').textContent = '—';
+    document.getElementById('sidebarUserUuidTop').textContent = '—';
+    document.getElementById('sidebarUserUuidSide').textContent = '—';
+
     document.getElementById('currentChatIdValue').textContent = 'нет';
 
     document.getElementById('messages').innerHTML = '';
