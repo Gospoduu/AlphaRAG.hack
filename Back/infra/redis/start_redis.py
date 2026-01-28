@@ -1,11 +1,12 @@
-import uuid
+# Back/infra/redis/start_redis
 
 import redis.asyncio as redis
 from dotenv import load_dotenv
 import os
 from pathlib import Path
 
-env_path = Path(__file__).resolve().parent.parent / ".env"
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+env_path = PROJECT_ROOT / ".env"
 print("🔍 Ищу .env по пути:", env_path)
 load_dotenv(dotenv_path=env_path)
 

@@ -1,34 +1,37 @@
+# Back/infra/db/start_db.py
+
 import asyncio
 import os
 import sys
 from pathlib import Path
-
+from uuid import UUID
+from datetime import datetime
 from dotenv import load_dotenv
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-# ФИКС для Docker: добавляем корень проекта в sys.path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+
+from pathlib import Path
+import sys
+
+# ФИКС для Docker: добавляем корень проекта (/app) в sys.path
+project_root = Path(__file__).resolve().parents[3]  # .../app
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 
 # Теперь используем абсолютные импорты для Docker
-try:
-    # Сначала пробуем абсолютные импорты (для Docker)
-    from db.db import engine, AsyncSessionLocal, Base
-    from user.models import *
-    from chat.models import *
-except ImportError:
-    # Если не сработало, пробуем относительные (для локального запуска)
-    from .db import engine, AsyncSessionLocal, Base
-    from Back.modules.user.models import *
-    from Back.modules.chat.models import *
+
+# Сначала пробуем абсолютные импорты (для Docker)
+from Back.infra.db.db import engine, AsyncSessionLocal, Base
+from Back.modules.user.models import *
+from Back.modules.chat.models import *
 
 # Загружаем .env
-env_path = Path(__file__).resolve().parent.parent / ".env"
+env_path = Path(__file__).resolve().parents[3] / ".env"
 print("🔍 Ищу .env по пути:", env_path)
 load_dotenv(dotenv_path=env_path)
+
 
 LLM_USER_UUID = os.getenv("LLM_USER_UUID")
 

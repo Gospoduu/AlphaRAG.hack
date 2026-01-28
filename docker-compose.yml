@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: alpharag_postgres
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: "1234567890"
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d mydb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    container_name: alpharag_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    container_name: alpharag_backend
+    ports:
+      - "8000:8000"
+
+    # ВАЖНО: внутри Docker нельзя localhost для Postgres/Redis
+    # поэтому перезапишем переменные на имена сервисов: postgres / redis
+    environment:
+      DATABASE_URL: postgresql+asyncpg://appuser:1234567890@postgres:5432/mydb
+      REDIS_URL: redis://redis:6379/0
+      LLM_USER_UUID: d589aeab-e4e5-4746-ab25-607bcd7cb644
+
+    # если хочешь, можешь дополнительно подключить root .env (не обязательно из-за environment выше)
+    # env_file:
+    #   - .env
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    # костыль, чтобы твои скрипты нашли .env там, где они его ищут: /app/Back/infra/.env
+    volumes:
+      - ./:/app
+      - ./.env:/app/Back/infra/.env:ro
+
+    command: >
+      bash -lc "
+      python Back/infra/redis/start_redis.py &&
+      python Back/infra/db/start_db.py &&
+      uvicorn Back.main:app --host 0.0.0.0 --port 8000 --reload
+      "
+
+volumes:
+  pgdata:

@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
+from fastapi.responses import FileResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,19 +14,25 @@ from Back.ws.ws import router as user_ws_router
 from Back.modules.chat.api import router as chat_router
 import Back.registry.handlers_registry
 import Back.registry.events_registry
-from fastapi.staticfiles import StaticFiles
 from logging import getLogger
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+
+BASE_DIR = Path(__file__).resolve().parent  # .../Back
+STATIC_DIR = BASE_DIR / "static"
+
 
 logger = getLogger(__name__)
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="Back/static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
 
 # Пример маршрута для проверки
 @app.get("/")
 async def read_root():
-    return {"message": "API работает!"}
+    return FileResponse(STATIC_DIR / "index.html")
 
 app.add_middleware(
     CORSMiddleware,

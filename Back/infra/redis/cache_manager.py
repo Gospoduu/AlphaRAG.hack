@@ -3,7 +3,7 @@ from redis.asyncio import Redis
 from typing import AsyncGenerator
 import asyncio
 
-async def get_redis()->AsyncGenerator[Redis]:
+async def get_redis()->AsyncGenerator[Redis, None]:
     yield redis_client
 
 async def add_active_user(user_uuid: str, redis: Redis):
