@@ -8,7 +8,13 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 
-env_path = Path(__file__).resolve().parent.parent / ".env"
+env_path = None
+for p in Path(__file__).resolve().parents:
+    candidate = p / ".env"
+    if candidate.exists():
+        env_path = candidate
+        break
+
 print("🔍 Ищу .env по пути:", env_path)
 load_dotenv(dotenv_path=env_path)
 

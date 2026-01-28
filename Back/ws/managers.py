@@ -1,67 +1,99 @@
+import uuid
+from dataclasses import dataclass
 from fastapi import WebSocket
 from typing import Dict
-from enum import Enum
+import asyncio
 from uuid import UUID
+
 from Back.core.events_bus.events import EventBase
 
-class ConnectionManager:
+
+@dataclass(frozen=True)
+class Conn:
+    ws: WebSocket
+    id: int | None
+
+class Manager:
     def __init__(self):
-        self.active_connections : Dict[str, WebSocket] = {}
-    async def connect(
-            self,
-            user_uuid: UUID,
-            websocket: WebSocket
-            ):
-        await websocket.accept()
-        self.active_connections[str(user_uuid)] = websocket
-        print("new connection")
+        self._active: Dict[str, Conn] = {}
+        self._locks: Dict[str, asyncio.Lock] = {}
+        self._manager_lock: asyncio.Lock = asyncio.Lock()
+    def _get_key(self,user_uuid: UUID) ->str:
+        return str(user_uuid)
 
-    def disconnect(self, user_uuid:UUID, websocket:WebSocket | None = None):
-        key = str(user_uuid)
-        current = self.active_connections.get(key)
-        if current is None:
-            print("disconnect: no active connection")
-            return
-        if websocket is not None and current is not websocket:
-            print(
-                "disconnect: skip, stored ws is different",
-                key,
-                "stored_id=", id(current),
-                "closing_id=", id(websocket),
-            )
-            return
-        self.active_connections.pop(str(user_uuid), None)
-        print("disconnect", key)
+    async def _get_user_lock(self, user_uuid: UUID) -> asyncio.Lock:
+        key = self._get_key(user_uuid)
+        async with self._manager_lock:
+            lock = self._locks.get(key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[key] = lock
+            return lock
 
-    async def send_event(
-            self,
-            user_uuid: UUID,
-            event: EventBase,)->bool:
-        ws = None
-        try:
-            ws = self.active_connections.get(str(user_uuid))
+    async def send_event(self,  user_uuid: UUID, event: EventBase,) -> bool:
+        key = self._get_key(user_uuid)
+        async with await self._get_user_lock(user_uuid):
+            cur = self._active.get(key)
+            ws = cur.ws if cur else None
             if ws is None:
-                print("NO WS FOUND for user", str(user_uuid))
                 return False
-            print("active_connections KEYS:", list(self.active_connections.keys()))
-            print("trying to send to:", str(user_uuid), "event:", event.event)
-
-            payload = event.model_dump(mode="json")
-            await ws.send_json(payload)
-            print("send event - ok")
+        try:
+            await ws.send_json(event.model_dump(mode="json"))
             return True
-        except AttributeError as e:
-            print("except send event -",e)
-            return False
-        except Exception as e:
-            print(f"except send event and disconnect before\n{e}")
-            self.disconnect(user_uuid, ws)
+        except Exception:
             return False
 
-    async def get_all_connections(
-            self
-    ):
-        all_connections = self.active_connections
-        return all_connections
+    async def connect(self, user_uuid: UUID, websocket: WebSocket)->int:
+        key = self._get_key(user_uuid)
+        await websocket.accept()
+        async with await self._get_user_lock(user_uuid):
+            old = self._active.get(key)
+            old_ws = old.ws if old else None
+            new_id = (old.id + 1) if old else 1
+            self._active[key] = Conn(websocket, new_id)
+        if old_ws and old_ws is not websocket:
+            try:
+                await old_ws.close(code=4001)
+            except Exception:
+                pass
 
-manager = ConnectionManager()
+        return new_id
+
+    async def is_current(self, user_uuid: UUID, conn_id: int) -> bool:
+        key = self._get_key(user_uuid)
+        async with await self._get_user_lock(user_uuid):
+            cur = self._active.get(key)
+        return cur is not None and cur.id == conn_id
+
+    async def disconnect(self, user_uuid: UUID, websocket: WebSocket | None, conn_id: int| None)->int| None:
+        key = self._get_key(user_uuid)
+        async with await self._get_user_lock(user_uuid):
+            curr = self._active.get(key)
+            if curr is None:
+                return
+            if conn_id is not None and curr.id != conn_id:
+                return
+            if websocket is not None and curr.ws is not websocket:
+                return
+            if websocket is None and conn_id is None:
+                return
+            self._active.pop(key)
+            ws_to_close = curr.ws
+        try:
+            await ws_to_close.close()
+        except Exception:
+            pass
+
+    async def get(self, user_uuid: UUID) -> Conn | None:
+        key = self._get_key(user_uuid)
+        async with await self._get_user_lock(user_uuid):
+            return self._active.get(key)
+
+
+manager = Manager()
+
+
+
+
+
+

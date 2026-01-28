@@ -1,3 +1,4 @@
+# Back/modules/chat/events.py
 from Back.core.events_bus.events import EventDataBase, EventBase, ErrorData
 from pydantic import Field
 from uuid import UUID

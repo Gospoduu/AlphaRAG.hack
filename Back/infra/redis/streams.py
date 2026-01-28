@@ -4,7 +4,7 @@ from uuid import UUID
 import logging
 from Back.core.events_bus.events import EventBase
 from Back.core.events_bus.events import ErrorEvent, ErrorCode
-import safe
+from Back.infra.redis import safe
 logger = logging.getLogger(__name__)
 from redis.asyncio import Redis
 
@@ -80,5 +80,6 @@ async def subscribe_to_cmd_stream(
                 last_id = entry_id
                 continue
             yield entry_id, entry_data
+            logger.info("CMD STREAM READ: user=%s entry_id=%s data=%s", user_uuid, entry_id, entry_data)
             last_id = entry_id
 

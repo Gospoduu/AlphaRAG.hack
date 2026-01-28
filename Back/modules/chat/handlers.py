@@ -52,6 +52,7 @@ async def message_handler(
             user_uuid=new_message.data.user_uuid,
             answered_to=new_message.data.answered_to,
             local_id=updated_local_id,
+            user_role=new_message.data.role
 
         )
         message_response_event = NewMessageResponseEvent(
@@ -82,6 +83,10 @@ async def llm_answer_handler(
         redis: Redis,
 )->None:
     try:
+        status = await crud.get_is_generate(db=db, chat_id=new_message.data.chat_id)
+        if status:
+            logger.info("LLM answer received, try later again!")
+            return
         await crud.change_is_generate(db=db, chat_id=new_message.data.chat_id, new_is_generate=True)
         await db.commit()
         prompt = new_message.data.text
@@ -99,7 +104,7 @@ async def llm_answer_handler(
             last_id=await add_new_chat_stream(redis=redis, event=token_event, chat_id=new_message.data.chat_id)
             token_event.meta["last_id"] = last_id
             await add_new_emit(redis=redis, event=token_event, user_uuid=new_message.data.user_uuid)
-            logger.debug(f"Token {token}, id {token_id} was added")
+            print(f"Token {token}, id {token_id} was added")
             ans+=token
             token_id += 1
         end_generation_event = EndGenerationEvent(
@@ -159,7 +164,7 @@ async def restore_handler(event: GenerationRestoreEvent, redis: Redis, db: Async
             payload = entry_data.get("payload")
             if not event_name or not payload:
                 continue
-            if event_name != NewTokenEvent.event:
+            if event_name != NewTokenEvent.model_fields["event"].default:
                 logger.warning(f"Event {event_name} was ignored in restore handler")
                 continue
             event_cls = event_manager.get(event_name)

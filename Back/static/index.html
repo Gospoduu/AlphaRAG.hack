@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebSocket Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    #layout { display: flex; gap: 20px; }
+    #sidebar { width: 250px; }
+    #chat { flex: 1; }
+    #messages { list-style-type: none; padding: 0; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; }
+    #messages li { padding: 5px; border-bottom: 1px solid #eee; font-size: 14px; white-space: pre-wrap; }
+    .hidden { display: none; }
+    .label { font-weight: bold; }
+    .row { margin-bottom: 10px; }
+    .msg-num { color: #888; font-size: 12px; margin-right: 6px; }
+    .msg-meta { color: #666; font-size: 12px; margin-left: 6px; }
+    .msg-role { font-weight: bold; }
+
+    input[type="text"] { width: 100%; padding: 5px; box-sizing: border-box; }
+    button { padding: 5px 10px; margin-left: 5px; }
+    select { width: 100%; padding: 4px; }
+    small.muted { color: #777; font-size: 12px; }
+
+  </style>
+</head>
+<body>
+<h1>WebSocket Chat (тестовый фронт)</h1>
+<div class="row">
+  <span class="label">UUID:</span>
+  <span id="sidebarUserUuid">—</span>
+</div>
+
+<div class="row">
+  <button onclick="createChat()">Создать чат</button>
+</div>
+
+<div class="row">
+  <button onclick="logout()">Выйти</button>
+</div>
+
+<div id="user-creation">
+  <h2>1. Создание пользователя</h2>
+  <div class="row">
+    <label for="role" class="label">Роль пользователя:</label>
+    <select id="role">
+      <option value="user">user</option>
+      <option value="admin">admin</option>
+    </select>
+    <button onclick="createUser()">Создать пользователя</button>
+  </div>
+  <p class="row">
+    <span class="label">UUID пользователя:</span>
+    <span id="userUuidValue">—</span>
+  </p>
+  <p class="row">
+    <small class="muted">
+      Если UUID уже сохранён в localStorage, страница сама подхватит сессию при обновлении.
+    </small>
+  </p>
+</div>
+
+<div id="app" class="hidden">
+  <div id="layout">
+    <div id="sidebar">
+      <h2>2. Чаты</h2>
+
+      <div class="row">
+        <span class="label">UUID:</span>
+        <span id="sidebarUserUuid">—</span>
+      </div>
+
+      <div class="row">
+        <button onclick="createChat()">Создать чат</button>
+      </div>
+
+      <div class="row">
+        <label class="label" for="chatSelect">Список чатов:</label>
+        <select id="chatSelect" size="8" onchange="onChatSelectChange()"></select>
+      </div>
+
+      <div class="row">
+        <small class="muted">
+          Выберите чат, чтобы увидеть сообщения.
+          Сессия (UUID и выбранный чат) сохраняется в localStorage.
+        </small>
+      </div>
+    </div>
+
+    <div id="chat">
+      <h2>3. Чат</h2>
+
+      <div class="row">
+        <span class="label">Текущий чат ID:</span>
+        <span id="currentChatIdValue">нет</span>
+      </div>
+
+      <div class="row">
+        <input type="text" id="messageInput" placeholder="Введите сообщение" />
+        <button onclick="sendMessage()">Отправить</button>
+      </div>
+
+      <h3>Сообщения</h3>
+      <ul id="messages"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+  // === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
+  let userUuid = null;
+  let socket = null;
+  let currentChatId = null;
+  let chats = [];
+
+  // chatId -> { text: string, active: boolean }
+  const chatStreams = {};
+
+  // chatId -> игнор дублей end_generation
+  const endReceivedForChat = {};
+
+  // heartbeat
+  let heartbeatIntervalId = null;
+  const HEARTBEAT_INTERVAL_MS = 25000;
+
+  // DOM элемент, куда стримим бота (только для активного чата)
+  let currentBotMessageEl = null;
+
+  const LS_USER_KEY = 'alpha_user_uuid';
+  const LS_CHAT_KEY = 'alpha_current_chat_id';
+
+  // persist last redis stream id per chat
+  const LS_STREAM_IDS_KEY = 'alpha_last_entry_ids_v2'; // { [chatId]: "1769...-0" }
+
+  // persist current generation text per chat
+  const LS_GEN_TEXT_KEY = 'alpha_gen_text_v2'; // { [chatId]: "...." }
+  const LS_GEN_ACTIVE_KEY = 'alpha_gen_active_v2'; // { [chatId]: true/false }
+
+  // ---------------- storage helpers ----------------
+  function safeParseLS(key, fallback) {
+    try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+    catch (_) { return fallback; }
+  }
+  function setLSObj(key, obj) {
+    localStorage.setItem(key, JSON.stringify(obj));
+  }
+
+  function setLastId(chatId, lastId) {
+    if (!chatId || !lastId) return;
+    const m = safeParseLS(LS_STREAM_IDS_KEY, {});
+    m[String(chatId)] = String(lastId);
+    setLSObj(LS_STREAM_IDS_KEY, m);
+  }
+
+  function getLastId(chatId) {
+    const m = safeParseLS(LS_STREAM_IDS_KEY, {});
+    return m[String(chatId)] || null;
+  }
+
+  function setGenText(chatId, text) {
+    if (!chatId) return;
+    const m = safeParseLS(LS_GEN_TEXT_KEY, {});
+    m[String(chatId)] = String(text || '');
+    setLSObj(LS_GEN_TEXT_KEY, m);
+  }
+
+  function getGenText(chatId) {
+    const m = safeParseLS(LS_GEN_TEXT_KEY, {});
+    return m[String(chatId)] || '';
+  }
+
+  function setGenActive(chatId, active) {
+    if (!chatId) return;
+    const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
+    m[String(chatId)] = !!active;
+    setLSObj(LS_GEN_ACTIVE_KEY, m);
+  }
+
+  function isGenActive(chatId) {
+    const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
+    return !!m[String(chatId)];
+  }
+
+  function clearGen(chatId) {
+    if (!chatId) return;
+    setGenText(chatId, '');
+    setGenActive(chatId, false);
+    // endReceived можно оставить (это UI), но на F5 оно всё равно сбросится
+  }
+
+  function extractLastId(message) {
+    return message?.meta?.last_id ?? message?.meta?.stream_id ?? null;
+  }
+
+  // ---------------- UI helpers ----------------
+  function ensureStreamLine() {
+    const list = document.getElementById('messages');
+    if (!currentBotMessageEl) {
+      currentBotMessageEl = document.createElement('li');
+      currentBotMessageEl.dataset.kind = 'stream';
+      list.appendChild(currentBotMessageEl);
+    }
+  }
+
+  function scrollToBottom() {
+    const list = document.getElementById('messages');
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function renderStreamIfNeeded(chatId) {
+    // если есть незавершённая генерация (по LS) — показать её
+    const active = isGenActive(chatId);
+    const txt = getGenText(chatId);
+
+    if (!active || !txt) {
+      currentBotMessageEl = null;
+      return;
+    }
+
+    // синхронизируем RAM
+    chatStreams[chatId] = { text: txt, active: true };
+
+    if (Number(chatId) !== Number(currentChatId)) return;
+
+    ensureStreamLine();
+    currentBotMessageEl.textContent = 'BOT(stream): ' + txt;
+    scrollToBottom();
+  }
+
+  // ---------------- startup ----------------
+  document.addEventListener('DOMContentLoaded', async () => {
+    const savedUserUuid = localStorage.getItem(LS_USER_KEY);
+    const savedChatId = localStorage.getItem(LS_CHAT_KEY);
+
+    if (savedUserUuid) {
+      userUuid = savedUserUuid;
+      document.getElementById('userUuidValue').textContent = userUuid;
+      document.getElementById('sidebarUserUuid').textContent = userUuid;
+
+      document.getElementById('user-creation').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+
+      await fetchChats();
+
+      if (savedChatId && chats.find(c => c.id === Number(savedChatId))) {
+        currentChatId = Number(savedChatId);
+      } else if (chats.length > 0) {
+        currentChatId = chats[0].id;
+      }
+
+      if (currentChatId) {
+        setCurrentChatId(currentChatId);
+        await loadMessages(currentChatId);
+        // после загрузки истории подрисуем незавершённый стрим (из LS)
+        renderStreamIfNeeded(currentChatId);
+      }
+
+      connectWebSocket(userUuid);
+    } else {
+      document.getElementById('user-creation').classList.remove('hidden');
+      document.getElementById('app').classList.add('hidden');
+    }
+  });
+
+  // ---------------- heartbeat ----------------
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatIntervalId = setInterval(() => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ event: 'ping', status: 'ok', data: { user_uuid: userUuid } }));
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatIntervalId !== null) {
+      clearInterval(heartbeatIntervalId);
+      heartbeatIntervalId = null;
+    }
+  }
+
+  // ---------------- websocket ----------------
+  function connectWebSocket(userUuid) {
+    const wsUrl = `ws://localhost:8000/api/ws/${userUuid}`;
+
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      try { socket.close(); } catch (_) {}
+    }
+
+    socket = new WebSocket(wsUrl);
+
+    socket.onopen = function () {
+      displayMessage('WS: соединение установлено');
+      startHeartbeat();
+
+      // НИКАКОГО generation_restore — просто продолжаем стримить в LS
+      // если на текущем чате активная генерация — покажем (на случай если connect раньше loadMessages)
+      if (currentChatId) renderStreamIfNeeded(currentChatId);
+    };
+
+    socket.onmessage = function (event) {
+      const message = JSON.parse(event.data);
+
+      switch (message.event) {
+        case 'new_token':
+          handleNewToken(message);
+          break;
+
+        case 'end_generation':
+          handleEndGeneration(message);
+          break;
+
+        case 'generated_text':
+          // можно игнорить, но полезно: если сервер прислал склейку — примем как "текущий текст"
+          handleGeneratedText(message);
+          break;
+
+        case 'pong':
+          break;
+
+        case 'error':
+          displayMessage(`❌ ERROR: ${message.data?.details ?? 'unknown error'}`);
+          if (currentChatId) clearGen(currentChatId);
+          currentBotMessageEl = null;
+          break;
+
+        default:
+          // message_response и т.п. игнор
+          break;
+      }
+    };
+
+    socket.onerror = function () {
+      displayMessage('WS: ошибка, см. консоль');
+    };
+
+    socket.onclose = function () {
+      displayMessage('WS: соединение закрыто');
+      currentBotMessageEl = null;
+      stopHeartbeat();
+    };
+  }
+
+  // ---------------- stream handlers ----------------
+  function handleNewToken(message) {
+    const data = message.data || {};
+    const chatId = Number(data.chat_id);
+    const token = data.token ?? '';
+
+    // 1) СРАЗУ сохраняем last_id
+    const lastId = extractLastId(message);
+    if (lastId) setLastId(chatId, lastId);
+
+    // 2) СРАЗУ обновляем текущий текст генерации в LS
+    const prev = getGenText(chatId);
+    const next = prev + token;
+    setGenText(chatId, next);
+    setGenActive(chatId, true);
+
+    // синхроним RAM
+    chatStreams[chatId] = { text: next, active: true };
+    endReceivedForChat[chatId] = false;
+
+    // UI только для текущего чата
+    if (chatId !== Number(currentChatId)) return;
+
+    ensureStreamLine();
+    currentBotMessageEl.textContent = 'BOT(stream): ' + next;
+    scrollToBottom();
+  }
+
+  function handleGeneratedText(message) {
+    // Это "склейка" — принимаем как актуальный текст генерации (и не затираем, если LS уже длиннее)
+    const data = message.data || {};
+    const chatId = Number(data.chat_id);
+    const text = data.text ?? '';
+
+    const lastId = extractLastId(message);
+    if (lastId) setLastId(chatId, lastId);
+
+    const cur = getGenText(chatId);
+    // если уже пришли токены и текст длиннее — не откатываем назад
+    const chosen = (cur && cur.length >= text.length && cur.startsWith(text)) ? cur : text;
+
+    setGenText(chatId, chosen);
+    setGenActive(chatId, true);
+
+    chatStreams[chatId] = { text: chosen, active: true };
+
+    if (chatId !== Number(currentChatId)) return;
+    ensureStreamLine();
+    currentBotMessageEl.textContent = 'BOT(stream): ' + chosen;
+    scrollToBottom();
+  }
+
+  function handleEndGeneration(message) {
+    const data = message.data || {};
+    const chatId = Number(data.chat_id);
+
+    if (endReceivedForChat[chatId]) return;
+    endReceivedForChat[chatId] = true;
+
+    // 3) на end_generation — чистим сохранённую генерацию
+    clearGen(chatId);
+
+    if (chatStreams[chatId]) chatStreams[chatId].active = false;
+
+    if (chatId === Number(currentChatId)) {
+      // displayMessage(`end_generation(chat ${chatId}): ${data.details ?? ''}`);
+      currentBotMessageEl = null;
+    }
+  }
+
+  // ---------------- chats api ----------------
+  async function fetchChats() {
+    if (!userUuid) return;
+    const url = `http://localhost:8000/api/chat/${userUuid}/chats`;
+    const response = await fetch(url);
+    const data = await response.json();
+    if (data.status === 'ok') {
+      chats = data.chats || [];
+      renderChatList();
+    }
+  }
+
+  function renderChatList() {
+    const select = document.getElementById('chatSelect');
+    select.innerHTML = '';
+
+    if (!chats.length) {
+      const opt = document.createElement('option');
+      opt.textContent = 'Чатов нет';
+      opt.disabled = true;
+      select.appendChild(opt);
+      return;
+    }
+
+    chats.forEach(chat => {
+      const opt = document.createElement('option');
+      opt.value = chat.id;
+      opt.textContent = `#${chat.id} — ${chat.title || 'Без названия'}`;
+      if (currentChatId && chat.id === currentChatId) opt.selected = true;
+      select.appendChild(opt);
+    });
+  }
+
+  async function onChatSelectChange() {
+    const select = document.getElementById('chatSelect');
+    const value = select.value;
+    if (!value) return;
+
+    currentChatId = Number(value);
+    setCurrentChatId(currentChatId);
+    localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
+
+    await loadMessages(currentChatId);
+    renderStreamIfNeeded(currentChatId);
+  }
+
+  async function loadMessages(chatId) {
+    currentBotMessageEl = null;
+
+    const url = `http://localhost:8000/api/chat/${chatId}/messages?start_message_idx=0&batch_size=40`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== 'ok') {
+      displayMessage(`Не удалось загрузить сообщения для чата ${chatId}`);
+      return;
+    }
+
+    // API отдаёт DESC — для UI хотим ASC
+    let msgs = data.messages || [];
+    msgs = msgs.reverse();
+
+    const list = document.getElementById('messages');
+    list.innerHTML = '';
+
+    msgs.forEach(msg => {
+      const li = document.createElement('li');
+
+      const numSpan = document.createElement('span');
+      numSpan.className = 'msg-num';
+      numSpan.textContent = `#${msg.local_id ?? '?'}`;
+
+      const roleSpan = document.createElement('span');
+      roleSpan.className = 'msg-role';
+      roleSpan.textContent = `${(msg.user_role || 'user').toUpperCase()}: `;
+
+      const textSpan = document.createElement('span');
+      textSpan.textContent = msg.text ?? '';
+
+      li.appendChild(numSpan);
+      li.appendChild(roleSpan);
+      li.appendChild(textSpan);
+
+      list.appendChild(li);
+    });
+
+    scrollToBottom();
+  }
+
+  function setCurrentChatId(chatId) {
+    currentChatId = chatId;
+    document.getElementById('currentChatIdValue').textContent = chatId;
+  }
+
+  // ---------------- create user/chat ----------------
+  async function createUser() {
+    const role = document.getElementById('role').value;
+
+    const response = await fetch('http://localhost:8000/api/user/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'ok') {
+      userUuid = data.uuid;
+      localStorage.setItem(LS_USER_KEY, userUuid);
+
+      document.getElementById('userUuidValue').textContent = userUuid;
+      document.getElementById('sidebarUserUuid').textContent = userUuid;
+      document.getElementById('user-creation').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+
+      await fetchChats();
+      if (chats.length > 0) {
+        currentChatId = chats[0].id;
+        setCurrentChatId(currentChatId);
+        localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
+        await loadMessages(currentChatId);
+        renderStreamIfNeeded(currentChatId);
+      }
+
+      connectWebSocket(userUuid);
+    } else {
+      alert('Ошибка при создании пользователя');
+    }
+  }
+
+  async function createChat() {
+    if (!userUuid) {
+      alert('Сначала создайте пользователя');
+      return;
+    }
+
+    const response = await fetch('http://localhost:8000/api/chat/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_uuid: userUuid })
+    });
+
+    const data = await response.json();
+
+    if (data.status === 'ok') {
+      await fetchChats();
+
+      currentChatId = data.chat_id;
+      setCurrentChatId(currentChatId);
+      localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
+
+      const select = document.getElementById('chatSelect');
+      if (select) select.value = String(currentChatId);
+
+      displayMessage(`Чат создан: id=${currentChatId}`);
+      await loadMessages(currentChatId);
+      renderStreamIfNeeded(currentChatId);
+    } else {
+      alert('Ошибка при создании чата');
+    }
+  }
+
+  // ---------------- send message ----------------
+  function sendMessage() {
+    const messageInput = document.getElementById('messageInput');
+    const text = messageInput.value.trim();
+    if (!text) return;
+
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket ещё не подключен');
+      return;
+    }
+    if (!currentChatId) {
+      alert('Сначала выберите или создайте чат');
+      return;
+    }
+
+    socket.send(JSON.stringify({
+      event: 'new_message',
+      status: 'ok',
+      data: { user_uuid: userUuid, chat_id: currentChatId, text, answered_to: null, role: 'user' }
+    }));
+
+    displayMessage(`YOU: ${text}`);
+    messageInput.value = '';
+
+    // начинаем "новую" генерацию локально
+    setGenText(currentChatId, '');
+    setGenActive(currentChatId, true);
+    chatStreams[currentChatId] = { text: '', active: true };
+    endReceivedForChat[currentChatId] = false;
+    currentBotMessageEl = null;
+  }
+
+  // ---------------- display message ----------------
+  function displayMessage(message, opts = {}) {
+    const messageList = document.getElementById('messages');
+
+    const items = Array.from(messageList.querySelectorAll('li'));
+    const onlyNonStream = items.filter(li => li.dataset.kind !== 'stream');
+    const num = onlyNonStream.length + 1;
+
+    const li = document.createElement('li');
+    li.dataset.kind = opts.kind || 'msg';
+
+    const numSpan = document.createElement('span');
+    numSpan.className = 'msg-num';
+    numSpan.textContent = `#${num}`;
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = message;
+
+    li.appendChild(numSpan);
+    li.appendChild(textSpan);
+
+    messageList.appendChild(li);
+    scrollToBottom();
+  }
+
+  // ---------------- logout ----------------
+  function logout() {
+    localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(LS_CHAT_KEY);
+
+    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+      try { socket.close(); } catch (_) {}
+    }
+
+    userUuid = null;
+    currentChatId = null;
+    chats = [];
+
+    document.getElementById('user-creation').classList.remove('hidden');
+    document.getElementById('app').classList.add('hidden');
+
+    document.getElementById('userUuidValue').textContent = '—';
+    document.getElementById('sidebarUserUuid').textContent = '—';
+    document.getElementById('currentChatIdValue').textContent = 'нет';
+
+    document.getElementById('messages').innerHTML = '';
+    document.getElementById('chatSelect').innerHTML = '';
+  }
+
+  // expose for buttons
+  window.createUser = createUser;
+  window.createChat = createChat;
+  window.logout = logout;
+  window.sendMessage = sendMessage;
+  window.onChatSelectChange = onChatSelectChange;
+</script>
+
+</body>
+</html>

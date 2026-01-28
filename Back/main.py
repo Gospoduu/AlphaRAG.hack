@@ -1,3 +1,5 @@
+# Back/main.py
+
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -10,12 +12,16 @@ from Back.infra.redis.cache_manager import redis_is_fine, get_redis
 from Back.modules.user.api import router as user_router
 from Back.ws.ws import router as user_ws_router
 from Back.modules.chat.api import router as chat_router
-from Back.core.events_bus.handler_manager import handler_manager
+import Back.registry.handlers_registry
+import Back.registry.events_registry
 from fastapi.staticfiles import StaticFiles
+from logging import getLogger
+
+logger = getLogger(__name__)
 
 app = FastAPI()
 
-app.mount("/static", StaticFiles(directory="back/static"), name="static")
+app.mount("/static", StaticFiles(directory="Back/static"), name="static")
 
 # Пример маршрута для проверки
 @app.get("/")
@@ -47,11 +53,4 @@ async def db_ping(db: AsyncSession = Depends(get_db)):
     return {"db": status}
 
 for route in app.routes:
-    print("ROUTE:", route.path, getattr(route, "methods", None), type(route))
-
-if __name__ == "__main__":
-    uvicorn.run("Back.main.main:app",
-                host="0.0.0.0",
-                port=8000,
-                reload=True,
-                reload_dirs=["Back/"])
+    logger.debug("ROUTE: %s %s %s", route.path, getattr(route, "methods", None), type(route))

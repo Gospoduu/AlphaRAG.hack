@@ -16,6 +16,7 @@ import json
 
 logger = getLogger(__name__)
 
+
 def _log_task_result(task: asyncio.Task):
     try:
         task.result()
@@ -111,5 +112,39 @@ async def dispatcher_event(user_uuid: UUID, redis: Redis, get_db: Callable[[], A
             task.add_done_callback(_log_task_result)
 
 
+class DispatcherManager:
+    def __init__(self):
+        self._dispatcher_tasks: Dict[UUID, asyncio.Task] = {}
+        self._locks: Dict[UUID, asyncio.Lock] = {}
 
+    async def ensure_dispatcher(self, user_uuid: UUID, redis: Redis, get_db):
+        lock = self._locks.setdefault(user_uuid, asyncio.Lock())
+        async with lock:
+            task = self._dispatcher_tasks.get(user_uuid)
+            if task and not task.done():
+                return task
 
+            task = asyncio.create_task(
+                dispatcher_event(user_uuid, redis, get_db),
+                name=f"dispatcher:{user_uuid}",
+            )
+
+            def _cleanup(t: asyncio.Task):
+                cur = self._dispatcher_tasks.get(user_uuid)
+                if cur is t:
+                    self._dispatcher_tasks.pop(user_uuid, None)
+                _log_task_result(t)
+
+            task.add_done_callback(_cleanup)
+            self._dispatcher_tasks[user_uuid] = task
+            return task
+
+    async def stop_dispatcher(self, user_uuid: UUID):
+        task = self._dispatcher_tasks.pop(user_uuid, None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+dispatcher_manager = DispatcherManager()

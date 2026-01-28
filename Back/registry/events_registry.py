@@ -3,9 +3,10 @@
 from Back.core.events_bus.event_manager import event_manager
 
 # system
-from Back.modules.system.events import PingEvent
+from Back.modules.system.events import PingEvent, PongEvent
 from Back.core.events_bus.events import ErrorEvent
 event_manager.register(ErrorEvent)
+event_manager.register(PongEvent)
 event_manager.register(PingEvent)
 
 # chat
