@@ -1,370 +1,332 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>WebSocket Chat</title>
-  <style>
-    :root{
-  --bg: #f7f7f8;
-  --panel: #ffffff;
-  --border: #e5e7eb;
-  --text: #111827;
-  --muted: #6b7280;
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WS Chat Console</title>
+<style>
+  :root{
+    --bg:#0a0d12;
+    --panel:#12161d;
+    --panel-2:#171c24;
+    --border:#242b35;
+    --border-soft:#1b212a;
+    --text:#e3e9f0;
+    --muted:#7c8794;
+    --muted-2:#4c555f;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+    --accent-live:#ffb454;
+    --accent-user:#5ec9f8;
+    --accent-ok:#3ddc84;
+    --accent-err:#ff6b6b;
+    --radius:10px;
+    --radius-lg:14px;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 8px 24px rgba(0,0,0,.4);
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(1200px 500px at 15% -10%, rgba(94,201,248,.06), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(255,180,84,.05), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  .hidden{ display:none !important; }
+  ::selection{ background: rgba(94,201,248,.25); }
 
-  --bubble-user: #dbeafe;   /* light blue */
-  --bubble-bot: #ffffff;    /* white */
-  --bubble-border: #e5e7eb;
+  code, .mono{ font-family:var(--mono); }
 
-  --accent: #10a37f;        /* “chatgpt green” */
-  --accent-hover: #0e8d6e;
+  /* ---------- boot screen ---------- */
+  #boot{
+    height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .boot-inner{ text-align:center; }
+  .boot-dot{
+    width:10px; height:10px; margin:0 auto 14px;
+    border-radius:50%;
+    background:var(--accent-live);
+    box-shadow:0 0 0 0 rgba(255,180,84,.6);
+    animation: bootpulse 1.1s ease-out infinite;
+  }
+  @keyframes bootpulse{
+    0%{ box-shadow:0 0 0 0 rgba(255,180,84,.55); }
+    70%{ box-shadow:0 0 0 14px rgba(255,180,84,0); }
+    100%{ box-shadow:0 0 0 0 rgba(255,180,84,0); }
+  }
+  #bootText{ color:var(--muted); font-family:var(--mono); font-size:13px; letter-spacing:.02em; }
 
-  --radius: 14px;
-  --shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.06);
-    }
+  /* ---------- shell ---------- */
+  #app-shell{ max-width:1180px; margin:0 auto; padding:16px 18px 22px; }
 
-    * { box-sizing: border-box; }
+  #topbar{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:12px 16px;
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    margin-bottom:16px;
+    flex-wrap:wrap;
+  }
+  .brand{
+    display:flex; align-items:center; gap:10px;
+    font-weight:700; font-size:14px; letter-spacing:.01em;
+  }
+  .brand .sq{
+    width:20px;height:20px;border-radius:6px;
+    background:linear-gradient(135deg, var(--accent-user), #2f6fa8);
+    flex:none;
+  }
 
-    body{
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    #topbar{
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 16px 10px;
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      flex-wrap: wrap;
-    }
-    #topbar .row{ margin: 0; }
+  .ws-indicator{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--muted); }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--muted-2); flex:none; }
+  .ws-indicator[data-status="open"] .dot{ background:var(--accent-ok); box-shadow:0 0 0 3px rgba(61,220,132,.15); }
+  .ws-indicator[data-status="connecting"] .dot{ background:var(--accent-live); animation:blink 1s ease-in-out infinite; }
+  .ws-indicator[data-status="closed"] .dot,
+  .ws-indicator[data-status="error"] .dot{ background:var(--accent-err); }
+  @keyframes blink{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
 
-    h1{
-      font-size: 18px;
-      font-weight: 700;
-      margin: 18px auto 10px;
-      max-width: 1100px;
-      padding: 0 16px;
-    }
+  .chip{
+    font-family:var(--mono); font-size:12px; color:var(--muted);
+    background:var(--panel-2); border:1px solid var(--border);
+    padding:5px 10px; border-radius:999px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .chip b{ color:var(--text); font-weight:600; }
+  .role-badge{
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em;
+    padding:4px 8px; border-radius:6px;
+    background:rgba(94,201,248,.1); color:var(--accent-user); border:1px solid rgba(94,201,248,.25);
+  }
+  .role-badge[data-role="admin"]{
+    background:rgba(255,180,84,.1); color:var(--accent-live); border-color:rgba(255,180,84,.3);
+  }
 
-    h2{ margin: 0 0 10px; font-size: 14px; color: var(--muted); font-weight: 700; }
-    h3{ margin: 14px 0 8px; font-size: 13px; color: var(--muted); font-weight: 700; }
+  .spacer{ flex:1; }
 
-    .label{ color: var(--muted); font-weight: 700; }
-    small.muted{ color: var(--muted); }
+  button{
+    appearance:none; cursor:pointer;
+    font-family:var(--sans); font-weight:600; font-size:13px;
+    color:var(--text); background:var(--panel-2);
+    border:1px solid var(--border); border-radius:var(--radius);
+    padding:8px 14px;
+    transition: border-color .15s ease, background .15s ease, transform .05s ease;
+  }
+  button:hover{ border-color:#37414e; background:#1b212b; }
+  button:active{ transform:translateY(1px); }
+  button.primary{
+    background:var(--accent-user); color:#04202e; border-color:transparent;
+  }
+  button.primary:hover{ background:#7ad4fc; }
+  button.ghost{ background:transparent; }
+  button.danger{ color:var(--accent-err); }
 
-    .row{ margin: 10px 0; }
+  /* ---------- layout ---------- */
+  #layout{ display:grid; grid-template-columns:290px 1fr; gap:16px; }
 
-    #layout{
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 0 16px 18px;
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 16px;
-    }
+  #sidebar, #chat{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow);
+    display:flex; flex-direction:column;
+    min-height:0;
+  }
+  #sidebar{ padding:14px; }
+  #chat{ padding:14px; height: calc(100vh - 140px); min-height: 480px; }
 
-    #sidebar, #chat{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 14px;
-    }
+  .panel-title{
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--muted-2); margin:2px 0 10px;
+  }
 
-    #user-creation{
-      max-width: 1100px;
-      margin: 10px auto 0;
-      padding: 0 16px 16px;
-    }
+  #chatSelect{
+    flex:1;
+    width:100%;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    color:var(--text);
+    font-family:var(--mono); font-size:12.5px;
+    padding:4px;
+    outline:none;
+  }
+  #chatSelect option{ padding:8px 10px; border-radius:6px; }
+  #chatSelect option.streaming{ color:var(--accent-live); font-weight:700; }
 
-    #user-creation > h2{
-      margin: 12px 0 10px;
-      font-size: 14px;
-      color: var(--muted);
-    }
+  .sidebar-foot{ margin-top:10px; color:var(--muted-2); font-size:11.5px; line-height:1.5; }
+  .legend{ display:flex; align-items:center; gap:6px; margin-top:8px; font-size:11.5px; color:var(--muted); }
+  .legend .dot{ background:var(--accent-live); animation:blink 1.3s ease-in-out infinite; }
 
-    #chatSelect{
-      width: 100%;
-      padding: 10px;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      background: #fff;
-      outline: none;
-    }
-    #chatSelect:focus{ border-color: rgba(16,163,127,.35); box-shadow: 0 0 0 4px rgba(16,163,127,.12); }
+  .chat-head{
+    display:flex; align-items:center; gap:10px;
+    padding-bottom:12px; margin-bottom:12px;
+    border-bottom:1px solid var(--border-soft);
+  }
+  .chat-head .id{ font-family:var(--mono); font-size:13px; color:var(--muted); }
+  .chat-head .id b{ color:var(--text); }
 
-    /* buttons */
-    button{
-      appearance: none;
-      border: 1px solid var(--border);
-      background: #fff;
-      color: var(--text);
-      padding: 9px 12px;
-      border-radius: 12px;
-      cursor: pointer;
-      font-weight: 700;
-      transition: transform .02s ease, box-shadow .15s ease, border-color .15s ease;
-    }
-    button:hover{ border-color: #d1d5db; box-shadow: 0 1px 0 rgba(0,0,0,.02); }
-    button:active{ transform: translateY(1px); }
+  #messages{
+    list-style:none; margin:0; padding:6px 4px;
+    flex:1; overflow-y:auto;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  #messages::-webkit-scrollbar{ width:9px; }
+  #messages::-webkit-scrollbar-thumb{ background:#232a34; border-radius:999px; border:2px solid transparent; background-clip:padding-box; }
+  #messages::-webkit-scrollbar-thumb:hover{ background:#2d3542; }
 
-    /* primary кнопка — можно применять через класс, но ниже мы подсветим кнопки отправки */
-    button.primary{
-      background: var(--accent);
-      color: #fff;
-      border-color: transparent;
-    }
-    button.primary:hover{ background: var(--accent-hover); }
+  #messages li{
+    max-width:74%;
+    padding:9px 12px;
+    border-radius:12px;
+    border:1px solid var(--border);
+    background:var(--panel-2);
+    font-size:13.5px;
+    line-height:1.45;
+    white-space:pre-wrap;
+    word-wrap:break-word;
+    box-shadow:0 1px 0 rgba(0,0,0,.15);
+  }
+  #messages li .role-label{
+    display:block; font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+    text-transform:uppercase; color:var(--muted-2); margin-bottom:4px;
+  }
 
-    /* inputs */
-    input[type="text"], select{
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 10px 12px;
-      outline: none;
-      font-size: 14px;
-    }
-    input[type="text"]:focus{
-      border-color: rgba(16,163,127,.35);
-      box-shadow: 0 0 0 4px rgba(16,163,127,.12);
-    }
+  #messages li[data-role="user"]{
+    margin-left:auto;
+    background:rgba(94,201,248,.09);
+    border-color:rgba(94,201,248,.25);
+    border-bottom-right-radius:4px;
+  }
+  #messages li[data-role="user"] .role-label{ color:var(--accent-user); }
 
-    /* composer row */
-    #chat .row:nth-of-type(2){
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-    #messageInput{
-      flex: 1;
-    }
-    #chat .row:nth-of-type(2) button{
-      background: var(--accent);
-      color: #fff;
-      border-color: transparent;
-      min-width: 110px;
-    }
-    #chat .row:nth-of-type(2) button:hover{ background: var(--accent-hover); }
+  #messages li[data-role="bot"]{
+    margin-right:auto;
+    border-bottom-left-radius:4px;
+  }
 
-    /* messages container */
-    #messages{
-      list-style: none;
-      padding: 12px;
-      margin: 0;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      max-height: 520px;
-      overflow-y: auto;
-      background: #fafafa;
-    }
+  #messages li[data-role="sys"]{
+    align-self:center;
+    max-width:90%;
+    background:transparent;
+    border:1px dashed var(--border);
+    color:var(--muted);
+    font-family:var(--mono);
+    font-size:11.5px;
+    padding:5px 12px;
+    text-align:center;
+  }
 
-    /* individual message */
+  #messages li[data-kind="stream"]{
+    border-color:rgba(255,180,84,.35);
+    background:rgba(255,180,84,.05);
+  }
+  #messages li[data-kind="stream"] .role-label{ color:var(--accent-live); display:flex; align-items:center; gap:6px; }
+  #messages li[data-kind="stream"] .role-label .dot{ background:var(--accent-live); animation:blink 1s ease-in-out infinite; }
 
-    #messages li{
-      margin: 10px 0;
-      white-space: pre-wrap;
-    }
+  .cursor{
+    display:inline-block; width:7px; margin-left:1px;
+    color:var(--accent-live);
+    animation:blink 0.9s steps(1) infinite;
+  }
 
+  .composer{
+    display:flex; gap:8px; margin-top:12px;
+  }
+  #messageInput{
+    flex:1;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    color:var(--text);
+    font-family:var(--sans); font-size:13.5px;
+    padding:10px 12px;
+    outline:none;
+  }
+  #messageInput:focus{ border-color:rgba(94,201,248,.45); box-shadow:0 0 0 3px rgba(94,201,248,.12); }
+  #messageInput::placeholder{ color:var(--muted-2); }
 
-    /* hide numbering / meta (оставим, но сделаем менее заметным) */
-    .msg-num{
-      color: #9ca3af;
-      font-size: 11px;
-      min-width: 34px;
-      text-align: right;
-      margin-right: 6px;
-    }
-    .msg-role{
-      font-weight: 800;
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    /* bubble */
-    #messages li > span:last-child,
-    #messages li > span:nth-last-child(1){
-      /* на случай если у тебя другой порядок span-ов */
-    }
-
-    #messages li span{
-      line-height: 1.35;
-    }
-
-    /* bubble wrapper (мы не можем легко обернуть без JS, поэтому стилями “притворимся” пузырём на li) */
-    #messages li{
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid var(--bubble-border);
-      background: var(--bubble-bot);
-      box-shadow: 0 1px 0 rgba(0,0,0,.02);
-    }
-
-    /* user vs bot */
-    #messages li:has(.msg-role){
-      /* оставим как есть */
-    }
-
-    /* эвристика: если текст начинается с "YOU:" — считаем user */
-    #messages li:has(span:last-child){
-      /* no-op; pseudo selectors ниже */
-    }
-
-    /* user bubble when you displayMessage("YOU: ...") */
-    #messages li:has(span:nth-child(2)):has(span:nth-child(3)) {
-      /* no-op */
-    }
-    #messages li:has(span:nth-child(2)) {}
-
-    /* Реальная эвристика по содержимому через attribute невозможно,
-       поэтому дадим простой вариант: используем kind=msg и kind=stream,
-       а user/bot различаем по префиксу в displayMessage и в loadMessages. */
-
-    /* stream bubble */
-    #messages li[data-kind="stream"]{
-      background: #fff7ed; /* лёгкий “тёплый” для стрима */
-      border-color: #fed7aa;
-    }
-
-    /* чуть более “чатовый” вид для истории (ASC) — если роль USER/ADMIN */
-    #messages li:has(.msg-role){
-      padding-left: 12px;
-    }
-
-    /* Если роль USER (из истории) — подвинем вправо */
-    #messages li:has(.msg-role):has(.msg-role){
-      /* мы не можем проверить текст "USER" чисто CSS надёжно,
-         поэтому ниже — универсально: если хочешь прям красиво, добавь 2 строки JS (см. пункт 2). */
-    }
-
-    /* scrollbar */
-    #messages::-webkit-scrollbar{ width: 10px; }
-    #messages::-webkit-scrollbar-thumb{
-      background: #e5e7eb;
-      border-radius: 999px;
-      border: 2px solid #fafafa;
-    }
-    #messages::-webkit-scrollbar-thumb:hover{ background: #d1d5db; }
-
-    /* responsive */
-    @media (max-width: 880px){
-      #layout{ grid-template-columns: 1fr; }
-      #messages{ max-height: 420px; }
-    }
-    #messages li[data-role="user"]{
-  margin-left: auto;
-  background: var(--bubble-user);
-  border-color: #bfdbfe;
-    }
-    #messages li[data-role="bot"]{
-      margin-right: auto;
-      background: var(--bubble-bot);
-    }
-    #messages li[data-role="user"] .msg-role{ color: #1d4ed8; }
-    #messages li[data-role="bot"] .msg-role{ color: var(--muted); }
-
-  </style>
+  @media (max-width: 860px){
+    #layout{ grid-template-columns:1fr; }
+    #chat{ height:auto; }
+    #messages{ max-height:50vh; }
+  }
+</style>
 </head>
 <body>
-<h1>WebSocket Chat (тестовый фронт)</h1>
 
-    <div id="topbar">
-      <div class="row">
-        <span class="label">UUID:</span>
-        <span id="sidebarUserUuidTop">—</span>
-
-      </div>
-
-      <div class="row">
-        <button onclick="createChat()">Создать чат</button>
-      </div>
-
-      <div class="row">
-        <button onclick="logout()">Выйти</button>
-      </div>
-    </div>
-
-<div id="user-creation">
-  <h2>1. Создание пользователя</h2>
-  <div class="row">
-    <label for="role" class="label">Роль пользователя:</label>
-    <select id="role">
-      <option value="user">user</option>
-      <option value="admin">admin</option>
-    </select>
-    <button onclick="createUser()">Создать пользователя</button>
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-dot"></div>
+    <p id="bootText" class="mono">инициализация…</p>
   </div>
-  <p class="row">
-    <span class="label">UUID пользователя:</span>
-    <span id="userUuidValue">—</span>
-  </p>
-  <p class="row">
-    <small class="muted">
-      Если UUID уже сохранён в localStorage, страница сама подхватит сессию при обновлении.
-    </small>
-  </p>
 </div>
 
 <div id="app" class="hidden">
-  <div id="layout">
-    <div id="sidebar">
-      <h2>2. Чаты</h2>
+  <div id="app-shell">
 
-      <div class="row">
-        <span class="label">UUID:</span>
-        <span id="sidebarUserUuidSide">—</span>
+    <div id="topbar">
+      <div class="brand"><span class="sq"></span>WS Chat Console</div>
 
+      <div class="ws-indicator" id="wsIndicator" data-status="connecting">
+        <span class="dot"></span>
+        <span id="wsStatusLabel">подключение…</span>
       </div>
 
-      <div class="row">
-        <button onclick="createChat()">Создать чат</button>
+      <div class="chip">UUID <b id="uuidChip" class="mono">—</b></div>
+      <span class="role-badge" id="roleBadge" data-role="user">user</span>
+
+      <div class="spacer"></div>
+
+      <button class="primary" onclick="createChat()">+ Новый чат</button>
+      <button class="ghost danger" onclick="logout()">Выйти</button>
+    </div>
+
+    <div id="layout">
+      <div id="sidebar">
+        <div class="panel-title">Чаты</div>
+        <select id="chatSelect" size="14" onchange="onChatSelectChange()"></select>
+        <div class="legend"><span class="dot"></span> идёт генерация</div>
+        <div class="sidebar-foot">Сессия и незавершённые стримы сохраняются локально — можно переключаться между чатами, ничего не потеряется.</div>
       </div>
 
-      <div class="row">
-        <label class="label" for="chatSelect">Список чатов:</label>
-        <select id="chatSelect" size="8" onchange="onChatSelectChange()"></select>
-      </div>
+      <div id="chat">
+        <div class="chat-head">
+          <span class="id">Чат <b id="currentChatIdValue">—</b></span>
+        </div>
 
-      <div class="row">
-        <small class="muted">
-          Выберите чат, чтобы увидеть сообщения.
-          Сессия (UUID и выбранный чат) сохраняется в localStorage.
-        </small>
+        <ul id="messages"></ul>
+
+        <div class="composer">
+          <input type="text" id="messageInput" placeholder="Введите сообщение и нажмите Enter…" />
+          <button class="primary" onclick="sendMessage()">Отправить</button>
+        </div>
       </div>
     </div>
 
-    <div id="chat">
-      <h2>3. Чат</h2>
-
-      <div class="row">
-        <span class="label">Текущий чат ID:</span>
-        <span id="currentChatIdValue">нет</span>
-      </div>
-
-      <div class="row">
-        <input type="text" id="messageInput" placeholder="Введите сообщение" />
-        <button onclick="sendMessage()">Отправить</button>
-      </div>
-
-      <h3>Сообщения</h3>
-      <ul id="messages"></ul>
-    </div>
   </div>
 </div>
 
 <script>
   // === ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ===
   let userUuid = null;
+  let userRole = 'user';
   let socket = null;
   let currentChatId = null;
   let chats = [];
 
   // chatId -> { text: string, active: boolean }
   const chatStreams = {};
-
   // chatId -> игнор дублей end_generation
   const endReceivedForChat = {};
 
@@ -375,24 +337,22 @@
   // DOM элемент, куда стримим бота (только для активного чата)
   let currentBotMessageEl = null;
 
+  // защита от гонки при быстром переключении чатов
+  let loadMessagesToken = 0;
+
   const LS_USER_KEY = 'alpha_user_uuid';
+  const LS_ROLE_KEY = 'alpha_user_role';
   const LS_CHAT_KEY = 'alpha_current_chat_id';
-
-  // persist last redis stream id per chat
-  const LS_STREAM_IDS_KEY = 'alpha_last_entry_ids_v2'; // { [chatId]: "1769...-0" }
-
-  // persist current generation text per chat
-  const LS_GEN_TEXT_KEY = 'alpha_gen_text_v2'; // { [chatId]: "...." }
-  const LS_GEN_ACTIVE_KEY = 'alpha_gen_active_v2'; // { [chatId]: true/false }
+  const LS_STREAM_IDS_KEY = 'alpha_last_entry_ids_v2';
+  const LS_GEN_TEXT_KEY = 'alpha_gen_text_v2';
+  const LS_GEN_ACTIVE_KEY = 'alpha_gen_active_v2';
 
   // ---------------- storage helpers ----------------
   function safeParseLS(key, fallback) {
     try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
     catch (_) { return fallback; }
   }
-  function setLSObj(key, obj) {
-    localStorage.setItem(key, JSON.stringify(obj));
-  }
+  function setLSObj(key, obj) { localStorage.setItem(key, JSON.stringify(obj)); }
 
   function setLastId(chatId, lastId) {
     if (!chatId || !lastId) return;
@@ -400,66 +360,84 @@
     m[String(chatId)] = String(lastId);
     setLSObj(LS_STREAM_IDS_KEY, m);
   }
-
   function getLastId(chatId) {
     const m = safeParseLS(LS_STREAM_IDS_KEY, {});
     return m[String(chatId)] || null;
   }
-
   function setGenText(chatId, text) {
     if (!chatId) return;
     const m = safeParseLS(LS_GEN_TEXT_KEY, {});
     m[String(chatId)] = String(text || '');
     setLSObj(LS_GEN_TEXT_KEY, m);
   }
-
   function getGenText(chatId) {
     const m = safeParseLS(LS_GEN_TEXT_KEY, {});
     return m[String(chatId)] || '';
   }
-
   function setGenActive(chatId, active) {
     if (!chatId) return;
     const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
     m[String(chatId)] = !!active;
     setLSObj(LS_GEN_ACTIVE_KEY, m);
   }
-
   function isGenActive(chatId) {
     const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
     return !!m[String(chatId)];
   }
-
+  function isChatStreaming(chatId) {
+    return isGenActive(chatId) && !!getGenText(chatId);
+  }
   function clearGen(chatId) {
     if (!chatId) return;
     setGenText(chatId, '');
     setGenActive(chatId, false);
-    // endReceived можно оставить (это UI), но на F5 оно всё равно сбросится
   }
-
   function extractLastId(message) {
     return message?.meta?.last_id ?? message?.meta?.stream_id ?? null;
   }
 
   // ---------------- UI helpers ----------------
   function ensureStreamLine() {
-      const list = document.getElementById('messages');
-      if (!currentBotMessageEl) {
-        currentBotMessageEl = document.createElement('li');
-        currentBotMessageEl.dataset.kind = 'stream';
-        currentBotMessageEl.dataset.role = 'bot'; // <-- добавь это
-        list.appendChild(currentBotMessageEl);
-      }
-    }
-
-
-  function scrollToBottom() {
     const list = document.getElementById('messages');
-    list.scrollTop = list.scrollHeight;
+    // защита: если элемент был отсоединён от DOM (например, из-за перерисовки
+    // истории во время гонки), пересоздаём его вместо тихого отказа
+    if (!currentBotMessageEl || !list.contains(currentBotMessageEl)) {
+      currentBotMessageEl = document.createElement('li');
+      currentBotMessageEl.dataset.kind = 'stream';
+      currentBotMessageEl.dataset.role = 'bot';
+
+      const label = document.createElement('span');
+      label.className = 'role-label';
+      label.innerHTML = '<span class="dot"></span> bot · live';
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'stream-text';
+
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      cursor.textContent = '▌';
+
+      currentBotMessageEl.appendChild(label);
+      currentBotMessageEl.appendChild(textSpan);
+      currentBotMessageEl.appendChild(cursor);
+      list.appendChild(currentBotMessageEl);
+    }
+  }
+
+  function setStreamText(txt) {
+    ensureStreamLine();
+    currentBotMessageEl.querySelector('.stream-text').textContent = txt;
+  }
+
+  function isNearBottom(list) {
+    return list.scrollHeight - list.scrollTop - list.clientHeight < 100;
+  }
+  function scrollToBottom(force) {
+    const list = document.getElementById('messages');
+    if (force || isNearBottom(list)) list.scrollTop = list.scrollHeight;
   }
 
   function renderStreamIfNeeded(chatId) {
-    // если есть незавершённая генерация (по LS) — показать её
     const active = isGenActive(chatId);
     const txt = getGenText(chatId);
 
@@ -468,51 +446,70 @@
       return;
     }
 
-    // синхронизируем RAM
     chatStreams[chatId] = { text: txt, active: true };
 
     if (Number(chatId) !== Number(currentChatId)) return;
 
-    ensureStreamLine();
-    currentBotMessageEl.textContent = 'BOT(stream): ' + txt;
-    scrollToBottom();
+    setStreamText(txt);
+    scrollToBottom(true);
+  }
+
+  function setWsStatus(status) {
+    const el = document.getElementById('wsIndicator');
+    const label = document.getElementById('wsStatusLabel');
+    el.dataset.status = status;
+    const map = { connecting: 'подключение…', open: 'на связи', closed: 'офлайн', error: 'ошибка соединения' };
+    label.textContent = map[status] || status;
+  }
+
+  function setBootText(t) {
+    const el = document.getElementById('bootText');
+    if (el) el.textContent = t;
   }
 
   // ---------------- startup ----------------
   document.addEventListener('DOMContentLoaded', async () => {
     const savedUserUuid = localStorage.getItem(LS_USER_KEY);
     const savedChatId = localStorage.getItem(LS_CHAT_KEY);
+    const savedRole = localStorage.getItem(LS_ROLE_KEY);
 
     if (savedUserUuid) {
       userUuid = savedUserUuid;
-      document.getElementById('userUuidValue').textContent = userUuid;
-      document.getElementById('sidebarUserUuidTop').textContent = userUuid;
-      document.getElementById('sidebarUserUuidSide').textContent = userUuid;
-
-      document.getElementById('user-creation').classList.add('hidden');
-      document.getElementById('app').classList.remove('hidden');
-
-      await fetchChats();
-
-      if (savedChatId && chats.find(c => c.id === Number(savedChatId))) {
-        currentChatId = Number(savedChatId);
-      } else if (chats.length > 0) {
-        currentChatId = chats[0].id;
-      }
-
-      if (currentChatId) {
-        setCurrentChatId(currentChatId);
-        await loadMessages(currentChatId);
-        // после загрузки истории подрисуем незавершённый стрим (из LS)
-        renderStreamIfNeeded(currentChatId);
-      }
-
-      connectWebSocket(userUuid);
+      userRole = savedRole || 'user';
+      await enterApp(savedChatId);
     } else {
-      document.getElementById('user-creation').classList.remove('hidden');
-      document.getElementById('app').classList.add('hidden');
+      // автоматическое создание пользователя при первом заходе
+      setBootText('создаём тестового пользователя…');
+      await createUser();
     }
   });
+
+  async function enterApp(savedChatId) {
+    document.getElementById('uuidChip').textContent = userUuid;
+    const roleBadge = document.getElementById('roleBadge');
+    roleBadge.textContent = userRole;
+    roleBadge.dataset.role = userRole;
+
+    document.getElementById('boot').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+
+    await fetchChats();
+
+    if (savedChatId && chats.find(c => c.id === Number(savedChatId))) {
+      currentChatId = Number(savedChatId);
+    } else if (chats.length > 0) {
+      currentChatId = chats[0].id;
+    }
+
+    if (currentChatId) {
+      setCurrentChatId(currentChatId);
+      localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
+      await loadMessages(currentChatId);
+    }
+
+    refreshChatListIndicators();
+    connectWebSocket(userUuid);
+  }
 
   // ---------------- heartbeat ----------------
   function startHeartbeat() {
@@ -522,7 +519,6 @@
       socket.send(JSON.stringify({ event: 'ping', status: 'ok', data: { user_uuid: userUuid } }));
     }, HEARTBEAT_INTERVAL_MS);
   }
-
   function stopHeartbeat() {
     if (heartbeatIntervalId !== null) {
       clearInterval(heartbeatIntervalId);
@@ -538,14 +534,13 @@
       try { socket.close(); } catch (_) {}
     }
 
+    setWsStatus('connecting');
     socket = new WebSocket(wsUrl);
 
     socket.onopen = function () {
+      setWsStatus('open');
       displayMessage('WS: соединение установлено');
       startHeartbeat();
-
-      // НИКАКОГО generation_restore — просто продолжаем стримить в LS
-      // если на текущем чате активная генерация — покажем (на случай если connect раньше loadMessages)
       if (currentChatId) renderStreamIfNeeded(currentChatId);
     };
 
@@ -556,36 +551,32 @@
         case 'new_token':
           handleNewToken(message);
           break;
-
         case 'end_generation':
           handleEndGeneration(message);
           break;
-
         case 'generated_text':
-          // можно игнорить, но полезно: если сервер прислал склейку — примем как "текущий текст"
           handleGeneratedText(message);
           break;
-
         case 'pong':
           break;
-
         case 'error':
           displayMessage(`❌ ERROR: ${message.data?.details ?? 'unknown error'}`);
           if (currentChatId) clearGen(currentChatId);
           currentBotMessageEl = null;
+          refreshChatListIndicators();
           break;
-
         default:
-          // message_response и т.п. игнор
           break;
       }
     };
 
     socket.onerror = function () {
+      setWsStatus('error');
       displayMessage('WS: ошибка, см. консоль');
     };
 
     socket.onclose = function () {
+      setWsStatus('closed');
       displayMessage('WS: соединение закрыто');
       currentBotMessageEl = null;
       stopHeartbeat();
@@ -598,30 +589,25 @@
     const chatId = Number(data.chat_id);
     const token = data.token ?? '';
 
-    // 1) СРАЗУ сохраняем last_id
     const lastId = extractLastId(message);
     if (lastId) setLastId(chatId, lastId);
 
-    // 2) СРАЗУ обновляем текущий текст генерации в LS
     const prev = getGenText(chatId);
     const next = prev + token;
     setGenText(chatId, next);
     setGenActive(chatId, true);
 
-    // синхроним RAM
     chatStreams[chatId] = { text: next, active: true };
     endReceivedForChat[chatId] = false;
 
-    // UI только для текущего чата
-    if (chatId !== Number(currentChatId)) return;
+    refreshChatListIndicators();
 
-    ensureStreamLine();
-    currentBotMessageEl.textContent = 'BOT(stream): ' + next;
-    scrollToBottom();
+    if (chatId !== Number(currentChatId)) return;
+    setStreamText(next);
+    scrollToBottom(false);
   }
 
   function handleGeneratedText(message) {
-    // Это "склейка" — принимаем как актуальный текст генерации (и не затираем, если LS уже длиннее)
     const data = message.data || {};
     const chatId = Number(data.chat_id);
     const text = data.text ?? '';
@@ -630,18 +616,17 @@
     if (lastId) setLastId(chatId, lastId);
 
     const cur = getGenText(chatId);
-    // если уже пришли токены и текст длиннее — не откатываем назад
     const chosen = (cur && cur.length >= text.length && cur.startsWith(text)) ? cur : text;
 
     setGenText(chatId, chosen);
     setGenActive(chatId, true);
-
     chatStreams[chatId] = { text: chosen, active: true };
 
+    refreshChatListIndicators();
+
     if (chatId !== Number(currentChatId)) return;
-    ensureStreamLine();
-    currentBotMessageEl.textContent = 'BOT(stream): ' + chosen;
-    scrollToBottom();
+    setStreamText(chosen);
+    scrollToBottom(false);
   }
 
   function handleEndGeneration(message) {
@@ -651,13 +636,12 @@
     if (endReceivedForChat[chatId]) return;
     endReceivedForChat[chatId] = true;
 
-    // 3) на end_generation — чистим сохранённую генерацию
     clearGen(chatId);
-
     if (chatStreams[chatId]) chatStreams[chatId].active = false;
 
+    refreshChatListIndicators();
+
     if (chatId === Number(currentChatId)) {
-      // displayMessage(`end_generation(chat ${chatId}): ${data.details ?? ''}`);
       currentBotMessageEl = null;
     }
   }
@@ -680,7 +664,7 @@
 
     if (!chats.length) {
       const opt = document.createElement('option');
-      opt.textContent = 'Чатов нет';
+      opt.textContent = 'Чатов нет — создайте первый';
       opt.disabled = true;
       select.appendChild(opt);
       return;
@@ -689,9 +673,24 @@
     chats.forEach(chat => {
       const opt = document.createElement('option');
       opt.value = chat.id;
-      opt.textContent = `#${chat.id} — ${chat.title || 'Без названия'}`;
+      const streaming = isChatStreaming(chat.id);
+      opt.textContent = `${streaming ? '● ' : ''}#${chat.id} — ${chat.title || 'Без названия'}`;
+      opt.classList.toggle('streaming', streaming);
       if (currentChatId && chat.id === currentChatId) opt.selected = true;
       select.appendChild(opt);
+    });
+  }
+
+  function refreshChatListIndicators() {
+    const select = document.getElementById('chatSelect');
+    Array.from(select.options).forEach(opt => {
+      const id = Number(opt.value);
+      if (!id) return;
+      const chat = chats.find(c => c.id === id);
+      if (!chat) return;
+      const streaming = isChatStreaming(id);
+      opt.classList.toggle('streaming', streaming);
+      opt.textContent = `${streaming ? '● ' : ''}#${chat.id} — ${chat.title || 'Без названия'}`;
     });
   }
 
@@ -705,22 +704,24 @@
     localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
 
     await loadMessages(currentChatId);
-    renderStreamIfNeeded(currentChatId);
   }
 
   async function loadMessages(chatId) {
+    const myToken = ++loadMessagesToken;
     currentBotMessageEl = null;
 
     const url = `http://localhost:8000/api/chat/${chatId}/messages?start_message_idx=0&batch_size=40`;
     const response = await fetch(url);
     const data = await response.json();
 
+    // если пока грузили — пользователь уже переключился на другой чат, отбрасываем
+    if (myToken !== loadMessagesToken || Number(chatId) !== Number(currentChatId)) return;
+
     if (data.status !== 'ok') {
       displayMessage(`Не удалось загрузить сообщения для чата ${chatId}`);
       return;
     }
 
-    // API отдаёт DESC — для UI хотим ASC
     let msgs = data.messages || [];
     msgs = msgs.reverse();
 
@@ -729,28 +730,25 @@
 
     msgs.forEach(msg => {
       const li = document.createElement('li');
+      const role = (msg.user_role || 'user').toLowerCase() === 'user' ? 'user' : 'bot';
+      li.dataset.role = role;
 
-      const numSpan = document.createElement('span');
-      numSpan.className = 'msg-num';
-      numSpan.textContent = `#${msg.local_id ?? '?'}`;
-
-      const roleSpan = document.createElement('span');
-      roleSpan.className = 'msg-role';
-      roleSpan.textContent = `${(msg.user_role || 'user').toUpperCase()}: `;
+      const roleLabel = document.createElement('span');
+      roleLabel.className = 'role-label';
+      roleLabel.textContent = role;
 
       const textSpan = document.createElement('span');
       textSpan.textContent = msg.text ?? '';
 
-      li.appendChild(numSpan);
-      li.appendChild(roleSpan);
+      li.appendChild(roleLabel);
       li.appendChild(textSpan);
-
       list.appendChild(li);
-      li.dataset.role = (msg.user_role || 'user').toLowerCase() === 'user' ? 'user' : 'bot';
-
     });
 
-    scrollToBottom();
+    scrollToBottom(true);
+
+    // дорисовать незавершённый стрим (если есть) поверх истории
+    renderStreamIfNeeded(chatId);
   }
 
   function setCurrentChatId(chatId) {
@@ -760,7 +758,8 @@
 
   // ---------------- create user/chat ----------------
   async function createUser() {
-    const role = document.getElementById('role').value;
+    const params = new URLSearchParams(location.search);
+    const role = params.get('role') === 'admin' ? 'admin' : 'user';
 
     const response = await fetch('http://localhost:8000/api/user/', {
       method: 'POST',
@@ -772,34 +771,19 @@
 
     if (data.status === 'ok') {
       userUuid = data.uuid;
+      userRole = role;
       localStorage.setItem(LS_USER_KEY, userUuid);
+      localStorage.setItem(LS_ROLE_KEY, userRole);
 
-      document.getElementById('userUuidValue').textContent = userUuid;
-      document.getElementById('sidebarUserUuidTop').textContent = userUuid;
-      document.getElementById('sidebarUserUuidSide').textContent = userUuid;
-      document.getElementById('user-creation').classList.add('hidden');
-      document.getElementById('app').classList.remove('hidden');
-
-      await fetchChats();
-      if (chats.length > 0) {
-        currentChatId = chats[0].id;
-        setCurrentChatId(currentChatId);
-        localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
-        await loadMessages(currentChatId);
-        renderStreamIfNeeded(currentChatId);
-      }
-
-      connectWebSocket(userUuid);
+      setBootText('готово, открываем чат…');
+      await enterApp(null);
     } else {
-      alert('Ошибка при создании пользователя');
+      setBootText('ошибка при создании пользователя — обновите страницу');
     }
   }
 
   async function createChat() {
-    if (!userUuid) {
-      alert('Сначала создайте пользователя');
-      return;
-    }
+    if (!userUuid) return;
 
     const response = await fetch('http://localhost:8000/api/chat/', {
       method: 'POST',
@@ -821,7 +805,6 @@
 
       displayMessage(`Чат создан: id=${currentChatId}`);
       await loadMessages(currentChatId);
-      renderStreamIfNeeded(currentChatId);
     } else {
       alert('Ошибка при создании чата');
     }
@@ -851,46 +834,51 @@
     displayMessage(`YOU: ${text}`);
     messageInput.value = '';
 
-    // начинаем "новую" генерацию локально
     setGenText(currentChatId, '');
     setGenActive(currentChatId, true);
     chatStreams[currentChatId] = { text: '', active: true };
     endReceivedForChat[currentChatId] = false;
     currentBotMessageEl = null;
+    refreshChatListIndicators();
   }
 
-  // ---------------- display message ----------------
-  function displayMessage(message, opts = {}) {
-      const messageList = document.getElementById('messages');
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && document.activeElement?.id === 'messageInput') {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
 
-      const items = Array.from(messageList.querySelectorAll('li'));
-      const onlyNonStream = items.filter(li => li.dataset.kind !== 'stream');
-      const num = onlyNonStream.length + 1;
+  // ---------------- display message (system / meta) ----------------
+  function displayMessage(message) {
+    const messageList = document.getElementById('messages');
+    if (!messageList) return;
 
-      const li = document.createElement('li');
-      li.dataset.kind = opts.kind || 'msg';
+    const isUser = (typeof message === 'string' && message.startsWith('YOU:'));
 
-      const isUser = (typeof message === 'string' && message.startsWith('YOU:'));
-      li.dataset.role = isUser ? 'user' : 'bot';
+    const li = document.createElement('li');
+    li.dataset.kind = 'msg';
+    li.dataset.role = isUser ? 'user' : 'sys';
 
-      const numSpan = document.createElement('span');
-      numSpan.className = 'msg-num';
-      numSpan.textContent = `#${num}`;
-
-      const textSpan = document.createElement('span');
-      textSpan.textContent = isUser ? message.replace(/^YOU:\s*/, '') : message;
-
-      li.appendChild(numSpan);
-      li.appendChild(textSpan);
-
-      messageList.appendChild(li);
-      scrollToBottom();
+    if (isUser) {
+      const roleLabel = document.createElement('span');
+      roleLabel.className = 'role-label';
+      roleLabel.textContent = 'user';
+      li.appendChild(roleLabel);
     }
 
+    const textSpan = document.createElement('span');
+    textSpan.textContent = isUser ? message.replace(/^YOU:\s*/, '') : message;
+    li.appendChild(textSpan);
+
+    messageList.appendChild(li);
+    scrollToBottom(true);
+  }
 
   // ---------------- logout ----------------
   function logout() {
     localStorage.removeItem(LS_USER_KEY);
+    localStorage.removeItem(LS_ROLE_KEY);
     localStorage.removeItem(LS_CHAT_KEY);
 
     if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
@@ -901,26 +889,21 @@
     currentChatId = null;
     chats = [];
 
-    document.getElementById('user-creation').classList.remove('hidden');
     document.getElementById('app').classList.add('hidden');
-
-    document.getElementById('userUuidValue').textContent = '—';
-    document.getElementById('sidebarUserUuidTop').textContent = '—';
-    document.getElementById('sidebarUserUuidSide').textContent = '—';
-
-    document.getElementById('currentChatIdValue').textContent = 'нет';
+    document.getElementById('boot').classList.remove('hidden');
+    setBootText('создаём тестового пользователя…');
 
     document.getElementById('messages').innerHTML = '';
     document.getElementById('chatSelect').innerHTML = '';
+
+    createUser();
   }
 
-  // expose for buttons
-  window.createUser = createUser;
+  // expose for inline handlers
   window.createChat = createChat;
   window.logout = logout;
   window.sendMessage = sendMessage;
   window.onChatSelectChange = onChatSelectChange;
 </script>
-
 </body>
 </html>

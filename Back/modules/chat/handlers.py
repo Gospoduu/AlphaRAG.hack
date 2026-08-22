@@ -1,21 +1,35 @@
 # Back/modules/chat/handlers
 
-from typing import AsyncGenerator, Dict
-from redis.asyncio import Redis
-from Back.core.events_bus.handler_policy import with_policy
-from Back.core.events_bus.events import ErrorEvent, ErrorCode
-from Back.modules.chat.events import NewMessageEvent, GenerationRestoreEvent, NewTokenEvent, NewTokenData, EndGenerationEvent, NewMessageResponseEvent, NewMessageResponseData, GeneratedTextEvent, GeneratedTextData, EndGenerationData
-import asyncio
-from . import crud
-from .streams import add_new_chat_stream, read_chat_stream_since
-from Back.infra.redis.streams import add_new_emit
-from sqlalchemy.ext.asyncio import AsyncSession
-from Back.modules.user.models import Role
 from  uuid import UUID
 from dotenv import load_dotenv
 from pathlib import Path
 import logging
+import asyncio
 import os
+
+from redis.asyncio import Redis
+
+from Back.core.events_bus.handler_policy import with_policy
+from Back.core.events_bus.events import ErrorEvent, ErrorCode
+from Back.modules.chat.events import (
+    NewMessageEvent,
+    GenerationRestoreEvent,
+    NewTokenEvent,
+    NewTokenData,
+    EndGenerationEvent,
+    NewMessageResponseEvent,
+    NewMessageResponseData,
+    GeneratedTextEvent,
+    GeneratedTextData,
+    EndGenerationData
+)
+from . import crud
+from .streams import add_new_chat_stream, read_chat_stream_since
+from Back.infra.redis.streams import add_new_emit
+from Back.infra.yandex_api.yaclient import get_ans_from_yandex
+from sqlalchemy.ext.asyncio import AsyncSession
+from Back.modules.user.models import Role
+
 
 from ...core.events_bus.event_manager import event_manager
 from ...core.exc import RetryableError
