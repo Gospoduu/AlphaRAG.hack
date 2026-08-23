@@ -1,4 +1,41 @@
 services:
+  kafka:
+    image: confluentinc/cp-kafka:7.9.0
+    container_name: alpharag_kafka
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_PROCESS_ROLES: broker,controller
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID}
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://kafka:29093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "kafka-broker-api-versions --bootstrap-server kafka:29092 >/dev/null 2>&1",
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
   postgres:
     image: postgres:17
     container_name: alpharag_postgres
@@ -33,32 +70,32 @@ services:
     ports:
       - "8000:8000"
 
-    # ВАЖНО: внутри Docker нельзя localhost для Postgres/Redis
-    # поэтому перезапишем переменные на имена сервисов: postgres / redis
+    working_dir: /app
+
+    env_file:
+      - .env
+
     environment:
       DATABASE_URL: postgresql+asyncpg://appuser:1234567890@postgres:5432/mydb
       REDIS_URL: redis://redis:6379/0
       LLM_USER_UUID: d589aeab-e4e5-4746-ab25-607bcd7cb644
-
-    # если хочешь, можешь дополнительно подключить root .env (не обязательно из-за environment выше)
-    # env_file:
-    #   - .env
+      KAFKA_URL: kafka:29092
 
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
 
-    # костыль, чтобы твои скрипты нашли .env там, где они его ищут: /app/Back/infra/.env
     volumes:
       - ./:/app
-      - ./.env:/app/Back/infra/.env:ro
 
     command: >
       bash -lc "
-      python Back/infra/redis/start_redis.py &&
-      python Back/infra/db/start_db.py &&
+      python -m Back.infra.redis.start_redis &&
+      python -m Back.infra.db.start_db &&
       uvicorn Back.main:app --host 0.0.0.0 --port 8000 --reload
       "
 

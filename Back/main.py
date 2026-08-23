@@ -1,22 +1,29 @@
 # Back/main.py
 
+
+from logging import getLogger
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+from fastapi.staticfiles import StaticFiles
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from Back.infra.db.db import get_db
+
 from Back.modules.chat.crud import ping_db
+from Back.infra.db.start_db import init_db
+from Back.infra.db.db import get_db
 from Back.infra.redis.cache_manager import redis_is_fine, get_redis
+from Back.infra.kafka.broker import broker
+import Back.infra.kafka.subscribers
 from Back.modules.user.api import router as user_router
 from Back.ws.ws import router as user_ws_router
 from Back.modules.chat.api import router as chat_router
 import Back.registry.handlers_registry
 import Back.registry.events_registry
-from logging import getLogger
-from pathlib import Path
-from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent  # .../Back
 STATIC_DIR = BASE_DIR / "static"
@@ -24,7 +31,16 @@ STATIC_DIR = BASE_DIR / "static"
 
 logger = getLogger(__name__)
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    await broker.start()
+    try:
+        yield
+    finally:
+        await broker.stop()
+
+app = FastAPI(lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

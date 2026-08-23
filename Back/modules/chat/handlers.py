@@ -8,6 +8,7 @@ import asyncio
 import os
 
 from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from Back.core.events_bus.handler_policy import with_policy
 from Back.core.events_bus.events import ErrorEvent, ErrorCode
@@ -23,16 +24,13 @@ from Back.modules.chat.events import (
     GeneratedTextData,
     EndGenerationData
 )
+from Back.modules.user.models import Role
+from Back.infra.redis.streams import add_new_emit
+from Back.infra.kafka.publishers import publish_message
 from . import crud
 from .streams import add_new_chat_stream, read_chat_stream_since
-from Back.infra.redis.streams import add_new_emit
-from Back.infra.yandex_api.yaclient import get_ans_from_yandex
-from sqlalchemy.ext.asyncio import AsyncSession
-from Back.modules.user.models import Role
-
 
 from ...core.events_bus.event_manager import event_manager
-from ...core.exc import RetryableError
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +77,16 @@ async def message_handler(
                 local_id=updated_local_id,
             )
         )
-        await db.commit()
         await add_new_emit(redis=redis, event=message_response_event, user_uuid=new_message.data.user_uuid)
+        status = await crud.get_is_generate(db=db, chat_id=new_message.data.chat_id)
+        if status:
+            logger.info("LLM answer received, try later again!")
+            return
+        await crud.change_is_generate(db=db, chat_id=new_message.data.chat_id, new_is_generate=True)
+        await db.commit()
+
+        await publish_message(new_message)
+
     except Exception as e:
         try:
             await db.rollback()
@@ -115,7 +121,7 @@ async def llm_answer_handler(
                     chat_id=new_message.data.chat_id,
                 )
             )
-            last_id=await add_new_chat_stream(redis=redis, event=token_event, chat_id=new_message.data.chat_id)
+            last_id = await add_new_chat_stream(redis=redis, event=token_event, chat_id=new_message.data.chat_id)
             token_event.meta["last_id"] = last_id
             await add_new_emit(redis=redis, event=token_event, user_uuid=new_message.data.user_uuid)
             print(f"Token {token}, id {token_id} was added")

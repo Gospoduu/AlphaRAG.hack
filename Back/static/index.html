@@ -547,7 +547,7 @@
     socket.onmessage = function (event) {
       const message = JSON.parse(event.data);
 
-      switch (message.event) {
+      switch (message.event.toLowerCase()) {
         case 'new_token':
           handleNewToken(message);
           break;

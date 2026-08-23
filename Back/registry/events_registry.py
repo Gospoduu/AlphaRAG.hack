@@ -10,7 +10,14 @@ event_manager.register(PongEvent)
 event_manager.register(PingEvent)
 
 # chat
-from Back.modules.chat.events import NewMessageEvent,NewTokenEvent, EndGenerationEvent, NewMessageResponseEvent, GenerationRestoreEvent, GeneratedTextEvent
+from Back.modules.chat.events import (
+    NewMessageEvent,NewTokenEvent,
+    EndGenerationEvent,
+    NewMessageResponseEvent,
+    GenerationRestoreEvent,
+    GeneratedTextEvent
+)
+
 event_manager.register(GenerationRestoreEvent)
 event_manager.register(GeneratedTextEvent)
 event_manager.register(NewMessageEvent)

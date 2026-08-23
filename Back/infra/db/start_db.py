@@ -1,11 +1,6 @@
 # Back/infra/db/start_db.py
 
-import asyncio
 import os
-import sys
-from pathlib import Path
-from uuid import UUID
-from datetime import datetime
 from dotenv import load_dotenv
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,10 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from pathlib import Path
 import sys
 
-# ФИКС для Docker: добавляем корень проекта (/app) в sys.path
-project_root = Path(__file__).resolve().parents[3]  # .../app
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
+# ФИКС для Docker: добавляем корень проекта (/app) в sys.pat
 
 
 # Теперь используем абсолютные импорты для Docker
@@ -82,7 +74,3 @@ async def init_db():
             raise
 
     print("🎉 Инициализация БД завершена.")
-
-
-if __name__ == "__main__":
-    asyncio.run(init_db())

@@ -18,13 +18,13 @@ class EventManager:
             )
         if event_name in self.__events_dict:
             raise KeyError(f"Event `{event_name}` already registered")
-        self.__events_dict[event_name] = event_cls
+        self.__events_dict[event_name.strip().upper()] = event_cls
     def __getitem__(self, event: str) -> Type[EventBase]:
         if event not in self.__events_dict:
             raise KeyError(f"Event `{event}` not found")
         return self.__events_dict[event]
     def get(self, event: str) -> Type[EventBase]|None:
-        return self.__events_dict.get(event)
+        return self.__events_dict.get(event.strip().upper())
     def __contains__(self, event: str) -> bool:
         return event in self.__events_dict
 

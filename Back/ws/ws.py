@@ -50,13 +50,13 @@ async def ws_to_redis_loop(websocket:WebSocket, user_uuid: UUID, conn_id: int, r
             logger.info(f"WS JSON EVENT: {event_json}")
             event_type = event_json.get("event")
             if not event_type:
-                logger.error(f"WS UNKNOWN EVENT TYPE: {event_type}")
+                logger.error(f"WS UNKNOWN EVENT TYPE: {event_type} (53)")
                 err = ErrorEvent.create_error_event(code=ErrorCode.INVALID_DATA,details="Missing 'event' field in message")
                 await manager.send_event(user_uuid, err)
                 continue
             event_cls = event_manager.get(event_type)
             if event_cls is None:
-                logger.error(f"WS UNKNOWN EVENT TYPE: {event_type}")
+                logger.error(f"WS UNKNOWN EVENT TYPE: {event_type} (59)")
                 err = ErrorEvent.create_error_event(ErrorCode.UNKNOWN_EVENT,details=f"Unknown event type: {event_type}")
 
                 await manager.send_event(user_uuid, err)
@@ -102,7 +102,7 @@ async def ws_from_redis_loop(user_uuid: UUID, conn_id: int,r: Redis):
         logger.info(f"Received event: {event_name}")
         event_cls = event_manager.get(event_name)
         if event_cls is None:
-            logger.error(f"WS UNKNOWN EVENT TYPE: {event_name}")
+            logger.error(f"WS UNKNOWN EVENT TYPE: {event_name} (105)")
             continue
         try:
             event_obj = event_cls.from_json(payload)
