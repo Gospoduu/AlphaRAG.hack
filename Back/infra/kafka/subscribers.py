@@ -37,7 +37,7 @@ if not LLM_RESPONSE_TOPIC:
 @broker.subscriber(
     LLM_RESPONSE_TOPIC,
     group_id="chat-service",
-    max_workers=2,
+    max_workers=5,
 )
 async def handle_llm_response(
     msg: KafkaMessage,
@@ -61,46 +61,46 @@ async def handle_llm_response(
         raise ValueError(f"Unknown LLM response event: {event_name}")
 
 
-@broker.subscriber(
-    LLM_REQUEST_TOPIC,
-    group_id="chat-service",
-    max_workers=2,
-)
-async def mock_llm_service(
-    msg: KafkaMessage,
-) -> None:
-    event = NewMessageEvent.from_json(msg.body)
-    res = f"Это мог быть ответ от ллм на {event.data.text} но увы"
-    for idx, i in enumerate(res):
-        await asyncio.sleep(0.1)
-        token_event = NewTokenEvent(
-            data=NewTokenData(
-                token=i,
-                chat_id=event.data.chat_id,
-                user_uuid=event.data.user_uuid,
-                id=idx
-            )
-        )
-        await broker.publish(
-            token_event.to_json(),
-            topic=LLM_RESPONSE_TOPIC,
-            headers={"event_name": EVENT_NEW_TOKEN},
-        )
-
-    end_event = EndGenerationEvent(
-        data=EndGenerationData(
-            chat_id=event.data.chat_id,
-            user_uuid=event.data.user_uuid,
-            details="Mock generation completed",
-            all_text=res,
-        )
-    )
-
-    await broker.publish(
-        end_event.to_json(),
-        topic=LLM_RESPONSE_TOPIC,
-        headers={"event_name": EVENT_END_GENERATION},
-    )
-
-
+# @broker.subscriber(
+#     LLM_REQUEST_TOPIC,
+#     group_id="chat-service",
+#     max_workers=2,
+# )
+# async def mock_llm_service(
+#     msg: KafkaMessage,
+# ) -> None:
+#     event = NewMessageEvent.from_json(msg.body)
+#     res = f"Это мог быть ответ от ллм на {event.data.text} но увы"
+#     for idx, i in enumerate(res):
+#         await asyncio.sleep(0.1)
+#         token_event = NewTokenEvent(
+#             data=NewTokenData(
+#                 token=i,
+#                 chat_id=event.data.chat_id,
+#                 user_uuid=event.data.user_uuid,
+#                 id=idx
+#             )
+#         )
+#         await broker.publish(
+#             token_event.to_json(),
+#             topic=LLM_RESPONSE_TOPIC,
+#             headers={"event_name": EVENT_NEW_TOKEN},
+#         )
+#
+#     end_event = EndGenerationEvent(
+#         data=EndGenerationData(
+#             chat_id=event.data.chat_id,
+#             user_uuid=event.data.user_uuid,
+#             details="Mock generation completed",
+#             all_text=res,
+#         )
+#     )
+#
+#     await broker.publish(
+#         end_event.to_json(),
+#         topic=LLM_RESPONSE_TOPIC,
+#         headers={"event_name": EVENT_END_GENERATION},
+#     )
+#
+#
 
