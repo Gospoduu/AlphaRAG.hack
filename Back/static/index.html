@@ -1657,7 +1657,8 @@
       socket.onmessage = function (event) {
         try {
           const message = JSON.parse(event.data);
-          switch (message.event) {
+          const ev = (message.event || '').toLowerCase();
+          switch (ev) {
             case 'new_token':
               handleNewToken(message);
               break;
@@ -1699,7 +1700,7 @@
       stopHeartbeat();
       heartbeatIntervalId = setInterval(() => {
         if (!socket || socket.readyState !== WebSocket.OPEN) return;
-        socket.send(JSON.stringify({ event: 'ping', status: 'ok', data: { user_uuid: userUuid } }));
+        socket.send(JSON.stringify({ event: 'PING', status: 'OK', data: { user_uuid: userUuid } }));
       }, HEARTBEAT_INTERVAL_MS);
     }
 
@@ -2084,8 +2085,8 @@
 
       // Send to WebSocket
       socket.send(JSON.stringify({
-        event: 'new_message',
-        status: 'ok',
+        event: 'NEW_MESSAGE',
+        status: 'OK',
         data: {
           user_uuid: userUuid,
           chat_id: currentChatId,
