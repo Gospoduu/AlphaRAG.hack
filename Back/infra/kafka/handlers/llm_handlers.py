@@ -69,7 +69,7 @@ async def end_generation_handler(
         elif event.meta.get("need_to_call_support"):
             raise Exception("ДУРАЧЬЕ ВЫ В МЕТУ НЕ ПЕРЕДАЛИ ЗАПРОС - ЧТО БЫ ОПЕРАТОРУ ОТОСЛАТЬ")
         if event.meta.get("need_to_block_chat"):
-            logger.info("НУЖНО ДОПИСАТЬ ЛОГИКУ БЛОКИРОВКИ ЧАТА!!!")
+            await crud.block_chat(db=db, chat_id=event.data.chat_id)
 
 
         logger.info(f"Generation chat {event.data.chat_id} ends successfully ")
