@@ -435,6 +435,44 @@
       background: #fee2e2;
     }
 
+    .chat-item.is-streaming {
+      border-color: rgba(245, 158, 11, 0.45);
+      background: #fffbeb;
+    }
+
+    .chat-item.is-streaming.active {
+      background: #fef3c7;
+      border-color: #f59e0b;
+    }
+
+    .streaming-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #f59e0b;
+      margin-right: 4px;
+      animation: streamPulse 1s infinite ease-in-out;
+    }
+
+    @keyframes streamPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.8); }
+    }
+
+    .streaming-tag {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10px;
+      font-weight: 600;
+      color: #b45309;
+      background: #fef3c7;
+      border: 1px solid #fde68a;
+      padding: 1px 6px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+
     /* Support lines info widget */
     .sidebar-footer {
       padding: 14px;
@@ -1409,9 +1447,11 @@
     // Chat streams & memory
     const chatStreams = {};
     const endReceivedForChat = {};
+    const activeStreamBubbles = {}; // [chatId] -> HTMLElement
     let heartbeatIntervalId = null;
     const HEARTBEAT_INTERVAL_MS = 25000;
     let currentBotMessageEl = null;
+    let loadMessagesToken = 0;
 
     // Storage Keys
     const LS_USER_KEY = 'alpha_user_uuid';
@@ -1463,10 +1503,27 @@
       const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
       return !!m[String(chatId)];
     }
+    function isChatStreaming(chatId) {
+      if (!chatId) return false;
+      const strObj = chatStreams[chatId];
+      if (strObj && strObj.active !== undefined) {
+        return !!strObj.active;
+      }
+      return isGenActive(chatId);
+    }
     function clearGen(chatId) {
       if (!chatId) return;
       setGenText(chatId, '');
       setGenActive(chatId, false);
+    }
+    function getStreamBubble(chatId = currentChatId) {
+      if (!chatId) return null;
+      const el = activeStreamBubbles[chatId];
+      const container = document.getElementById('messageContainer');
+      if (el && container && container.contains(el)) {
+        return el;
+      }
+      return null;
     }
 
     // Markdown Parser with fallback & clickable images
@@ -1549,9 +1606,12 @@
       const savedChatId = localStorage.getItem(LS_CHAT_KEY);
 
       const messageInput = document.getElementById('messageInput');
-      messageInput.addEventListener('input', (e) => {
-        document.getElementById('charCountHint').textContent = `Символов: ${e.target.value.length}/1000`;
-      });
+      if (messageInput) {
+        messageInput.addEventListener('input', (e) => {
+          const hint = document.getElementById('charCountHint');
+          if (hint) hint.textContent = `Символов: ${e.target.value.length}/1000`;
+        });
+      }
 
       if (savedUserUuid) {
         userUuid = savedUserUuid;
@@ -1573,19 +1633,21 @@
           await loadMessages(currentChatId);
           renderStreamIfNeeded(currentChatId);
         } else {
-          showEmptyChatPrompt();
+          // Auto create first chat for user!
+          await createChat();
         }
 
         connectWebSocket(userUuid);
       } else {
-        document.getElementById('authModal').classList.remove('hidden');
-        document.getElementById('app').classList.add('hidden');
+        // Automatically create new user & first chat!
+        await createUser();
       }
     });
 
     // ---------------- USER CREATION ----------------
-    async function createUser() {
-      const role = document.getElementById('userRoleSelect').value;
+    async function createUser(selectedRole) {
+      const params = new URLSearchParams(location.search);
+      const role = selectedRole || params.get('role') || document.getElementById('userRoleSelect')?.value || 'user';
 
       try {
         const response = await fetch('http://localhost:8000/api/user/', {
@@ -1612,20 +1674,20 @@
             setCurrentChatId(currentChatId);
             localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
             await loadMessages(currentChatId);
+            renderStreamIfNeeded(currentChatId);
           } else {
-            // Auto create first chat
+            // Auto create first chat for new user!
             await createChat();
           }
 
           connectWebSocket(userUuid);
         } else {
-          alert('Ошибка при создании пользователя: ' + (data.details || 'неизвестная ошибка'));
+          console.error('Failed to create user:', data);
         }
       } catch (err) {
         console.warn('Backend server offline:', err);
         const alertBox = document.getElementById('serverOfflineAlert');
         if (alertBox) alertBox.style.display = 'block';
-        alert('Не удалось подключиться к серверу http://localhost:8000. Пожалуйста, запустите бэкенд FastAPI (uvicorn Back.main:app)!');
       }
     }
 
@@ -1652,6 +1714,7 @@
         startHeartbeat();
 
         if (currentChatId) renderStreamIfNeeded(currentChatId);
+        refreshChatListIndicators();
       };
 
       socket.onmessage = function (event) {
@@ -1728,10 +1791,12 @@
       chatStreams[chatId] = { text: next, active: true };
       endReceivedForChat[chatId] = false;
 
+      refreshChatListIndicators();
+
       if (chatId !== Number(currentChatId)) return;
 
-      ensureStreamBubble();
-      updateStreamContent(next);
+      ensureStreamBubble(chatId);
+      updateStreamContent(next, chatId);
       scrollToBottom();
     }
 
@@ -1750,9 +1815,11 @@
       setGenActive(chatId, true);
       chatStreams[chatId] = { text: chosen, active: true };
 
+      refreshChatListIndicators();
+
       if (chatId !== Number(currentChatId)) return;
-      ensureStreamBubble();
-      updateStreamContent(chosen);
+      ensureStreamBubble(chatId);
+      updateStreamContent(chosen, chatId);
       scrollToBottom();
     }
 
@@ -1763,19 +1830,30 @@
       if (endReceivedForChat[chatId]) return;
       endReceivedForChat[chatId] = true;
 
+      const fullText = (data.all_text ?? data.text ?? chatStreams[chatId]?.text ?? getGenText(chatId)) || '';
+
       clearGen(chatId);
       if (chatStreams[chatId]) chatStreams[chatId].active = false;
 
-      if (chatId === Number(currentChatId) && currentBotMessageEl) {
+      refreshChatListIndicators();
+
+      const bubbleEl = getStreamBubble(chatId);
+      if (chatId === Number(currentChatId) && bubbleEl) {
         // Finalize streaming bubble
-        const bubble = currentBotMessageEl.querySelector('.bubble');
+        const bubble = bubbleEl.querySelector('.bubble');
         if (bubble) {
           bubble.classList.remove('streaming');
           const cursor = bubble.querySelector('.typing-cursor');
           if (cursor) cursor.remove();
 
-          const fullText = chatStreams[chatId]?.text || bubble.innerText;
-          
+          const tag = bubbleEl.querySelector('.streaming-tag');
+          if (tag) tag.remove();
+
+          const contentEl = bubble.querySelector('.bubble-content');
+          if (contentEl && fullText) {
+            contentEl.innerHTML = renderMarkdown(fullText);
+          }
+
           // Check for lack of knowledge prompt
           if (checkLackOfKnowledge(fullText) && !bubble.querySelector('.escalation-box')) {
             const esc = document.createElement('div');
@@ -1790,7 +1868,7 @@
           }
 
           // Add feedback buttons if not present
-          if (!currentBotMessageEl.querySelector('.message-actions')) {
+          if (!bubbleEl.querySelector('.message-actions')) {
             const act = document.createElement('div');
             act.className = 'message-actions';
             act.innerHTML = `
@@ -1798,35 +1876,55 @@
               <button class="btn-fb" onclick="toggleFb(this, 'dislike')">👎 Не помогло</button>
               <button class="btn-fb" onclick="copyText(this)">📋 Копировать</button>
             `;
-            currentBotMessageEl.querySelector('.message-body').appendChild(act);
+            bubbleEl.querySelector('.message-body').appendChild(act);
           }
         }
+        delete activeStreamBubbles[chatId];
         currentBotMessageEl = null;
+        scrollToBottom();
+      } else {
+        delete activeStreamBubbles[chatId];
       }
     }
 
     function handleServerError(message) {
       const details = message.data?.details ?? 'Неизвестная ошибка сервера';
+      const chatId = Number(message.data?.chat_id || currentChatId);
       appendSystemMessage(`❌ Ошибка: ${details}`, 'danger');
-      if (currentChatId) clearGen(currentChatId);
+      if (chatId) {
+        clearGen(chatId);
+        if (chatStreams[chatId]) chatStreams[chatId].active = false;
+        delete activeStreamBubbles[chatId];
+      }
       currentBotMessageEl = null;
+      refreshChatListIndicators();
     }
 
-    function ensureStreamBubble() {
+    function ensureStreamBubble(chatId = currentChatId) {
+      if (!chatId || Number(chatId) !== Number(currentChatId)) return null;
       const container = document.getElementById('messageContainer');
-      if (!currentBotMessageEl) {
-        const row = document.createElement('div');
+      if (!container) return null;
+
+      const emptyState = container.querySelector('.empty-state');
+      if (emptyState) emptyState.remove();
+
+      let row = getStreamBubble(chatId);
+      if (!row) {
+        row = document.createElement('div');
         row.className = 'message-row bot';
         row.dataset.kind = 'stream';
+        row.dataset.chatId = String(chatId);
 
-        const line = detectSupportLine('');
+        const currentText = getGenText(chatId);
+        const line = detectSupportLine(currentText || '');
 
         row.innerHTML = `
           <div class="message-avatar">🤖</div>
           <div class="message-body">
             <div class="message-meta">
-              <span class="line-badge l1" style="font-size:10px; padding:2px 6px;">${line.name}</span>
+              <span class="line-badge ${line.code.toLowerCase()}" style="font-size:10px; padding:2px 6px;">${line.name}</span>
               <span>ИИ-консультант</span>
+              <span class="streaming-tag"><span class="streaming-dot"></span> Ответ...</span>
             </div>
             <div class="bubble streaming">
               <div class="bubble-content"></div>
@@ -1835,32 +1933,44 @@
           </div>
         `;
         container.appendChild(row);
+        activeStreamBubbles[chatId] = row;
         currentBotMessageEl = row;
       }
+      return row;
     }
 
-    function updateStreamContent(text) {
-      if (!currentBotMessageEl) return;
-      const contentEl = currentBotMessageEl.querySelector('.bubble-content');
+    function updateStreamContent(text, chatId = currentChatId) {
+      if (!chatId || Number(chatId) !== Number(currentChatId)) return;
+      const row = ensureStreamBubble(chatId);
+      if (!row) return;
+      const contentEl = row.querySelector('.bubble-content');
       if (contentEl) {
         contentEl.innerHTML = renderMarkdown(text);
+      }
+      const line = detectSupportLine(text);
+      const badge = row.querySelector('.line-badge');
+      if (badge && line) {
+        badge.className = `line-badge ${line.code.toLowerCase()}`;
+        badge.textContent = line.name;
       }
     }
 
     function renderStreamIfNeeded(chatId) {
-      const active = isGenActive(chatId);
+      if (!chatId || Number(chatId) !== Number(currentChatId)) return;
+      const active = isChatStreaming(chatId);
       const txt = getGenText(chatId);
 
-      if (!active || !txt) {
+      if (!active) {
+        delete activeStreamBubbles[chatId];
         currentBotMessageEl = null;
         return;
       }
 
       chatStreams[chatId] = { text: txt, active: true };
-      if (Number(chatId) !== Number(currentChatId)) return;
-
-      ensureStreamBubble();
-      updateStreamContent(txt);
+      ensureStreamBubble(chatId);
+      if (txt) {
+        updateStreamContent(txt, chatId);
+      }
       scrollToBottom();
     }
 
@@ -1881,6 +1991,7 @@
 
     function renderChatList() {
       const list = document.getElementById('chatList');
+      if (!list) return;
       list.innerHTML = '';
 
       if (!chats.length) {
@@ -1894,23 +2005,58 @@
 
       chats.forEach(chat => {
         const li = document.createElement('li');
-        li.className = `chat-item ${currentChatId === chat.id ? 'active' : ''}`;
+        const streaming = isChatStreaming(chat.id);
+        li.className = `chat-item ${currentChatId === chat.id ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
+        li.dataset.chatId = String(chat.id);
         li.onclick = (e) => {
           if (e.target.closest('.btn-delete-chat')) return;
           selectChat(chat.id);
         };
 
+        const streamBadge = streaming 
+          ? `<span class="streaming-tag"><span class="streaming-dot"></span> Ответ...</span>` 
+          : '';
+
         li.innerHTML = `
           <div class="chat-item-main">
-            <span class="chat-item-icon">💬</span>
+            <span class="chat-item-icon">${streaming ? '⚡' : '💬'}</span>
             <div class="chat-item-info">
-              <div class="chat-item-title">${escapeHtml(chat.title || 'Обращение #' + chat.id)}</div>
+              <div class="chat-item-title-row" style="display:flex; align-items:center; gap:6px;">
+                <div class="chat-item-title">${escapeHtml(chat.title || 'Обращение #' + chat.id)}</div>
+                ${streamBadge}
+              </div>
               <div class="chat-item-sub">ID: ${chat.id}</div>
             </div>
           </div>
           <button class="btn-delete-chat" onclick="deleteChat(${chat.id})" title="Удалить диалог">🗑</button>
         `;
         list.appendChild(li);
+      });
+    }
+
+    function refreshChatListIndicators() {
+      const items = document.querySelectorAll('#chatList .chat-item');
+      items.forEach(li => {
+        const id = Number(li.dataset.chatId);
+        if (!id) return;
+        const streaming = isChatStreaming(id);
+        li.classList.toggle('is-streaming', streaming);
+
+        const icon = li.querySelector('.chat-item-icon');
+        if (icon) icon.textContent = streaming ? '⚡' : '💬';
+
+        const titleRow = li.querySelector('.chat-item-title-row');
+        if (titleRow) {
+          let badge = titleRow.querySelector('.streaming-tag');
+          if (streaming && !badge) {
+            badge = document.createElement('span');
+            badge.className = 'streaming-tag';
+            badge.innerHTML = '<span class="streaming-dot"></span> Ответ...';
+            titleRow.appendChild(badge);
+          } else if (!streaming && badge) {
+            badge.remove();
+          }
+        }
       });
     }
 
@@ -1936,7 +2082,8 @@
 
     function setCurrentChatId(chatId) {
       const activeChat = chats.find(c => c.id === chatId);
-      document.getElementById('chatHeaderTitle').textContent = activeChat?.title || `Обращение #${chatId}`;
+      const titleEl = document.getElementById('chatHeaderTitle');
+      if (titleEl) titleEl.textContent = activeChat?.title || (chatId ? `Обращение #${chatId}` : 'Диалог не выбран');
     }
 
     async function createChat() {
@@ -1958,8 +2105,7 @@
           renderStreamIfNeeded(currentChatId);
         }
       } catch (e) {
-        console.error(e);
-        alert('Ошибка создания диалога');
+        console.error('Failed to create chat:', e);
       }
     }
 
@@ -1969,16 +2115,20 @@
         const res = await fetch(`http://localhost:8000/api/chat/${chatId}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.status === 'ok') {
+          clearGen(chatId);
+          delete chatStreams[chatId];
+          delete activeStreamBubbles[chatId];
           chats = chats.filter(c => c.id !== chatId);
           if (currentChatId === chatId) {
-            currentChatId = chats.length ? chats[0].id : null;
-            if (currentChatId) {
+            if (chats.length > 0) {
+              currentChatId = chats[0].id;
               setCurrentChatId(currentChatId);
               localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
               await loadMessages(currentChatId);
+              renderStreamIfNeeded(currentChatId);
             } else {
-              localStorage.removeItem(LS_CHAT_KEY);
-              showEmptyChatPrompt();
+              // Auto-create chat if all were deleted!
+              await createChat();
             }
           }
           renderChatList();
@@ -1991,23 +2141,30 @@
 
     // ---------------- LOAD MESSAGES ----------------
     async function loadMessages(chatId) {
+      const myToken = ++loadMessagesToken;
       currentBotMessageEl = null;
+      delete activeStreamBubbles[chatId];
+
       const container = document.getElementById('messageContainer');
+      if (!container) return;
       container.innerHTML = '';
 
       try {
         const res = await fetch(`http://localhost:8000/api/chat/${chatId}/messages?start_message_idx=0&batch_size=50`);
         const data = await res.json();
 
+        // If user changed chat while fetch was in flight, abort rendering
+        if (myToken !== loadMessagesToken || Number(chatId) !== Number(currentChatId)) return;
+
         if (data.status !== 'ok') {
-          container.innerHTML = `<div style="color:var(--danger); text-align:center;">Не удалось загрузить историю диалога</div>`;
+          container.innerHTML = `<div style="color:var(--danger); text-align:center; padding: 20px;">Не удалось загрузить историю диалога</div>`;
           return;
         }
 
         let msgs = data.messages || [];
         msgs.reverse(); // ASC order for UI
 
-        if (msgs.length === 0) {
+        if (msgs.length === 0 && !isChatStreaming(chatId)) {
           showEmptyChatPrompt();
           return;
         }
@@ -2030,6 +2187,7 @@
 
     function showEmptyChatPrompt() {
       const container = document.getElementById('messageContainer');
+      if (!container) return;
       container.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">🏛️</div>
@@ -2068,7 +2226,13 @@
       }
 
       if (!currentChatId) {
-        alert('Сначала создайте или выберите диалог');
+        // Auto create chat on the fly if somehow missing!
+        createChat().then(() => {
+          if (currentChatId) {
+            input.value = text;
+            sendMessage();
+          }
+        });
         return;
       }
 
@@ -2104,7 +2268,19 @@
       });
 
       input.value = '';
-      document.getElementById('charCountHint').textContent = 'Символов: 0/1000';
+      const hint = document.getElementById('charCountHint');
+      if (hint) hint.textContent = 'Символов: 0/1000';
+
+      // If there was an ongoing stream in this chat, finalize its UI bubble
+      if (activeStreamBubbles[currentChatId]) {
+        const oldBubble = activeStreamBubbles[currentChatId].querySelector('.bubble');
+        if (oldBubble) {
+          oldBubble.classList.remove('streaming');
+          const cursor = oldBubble.querySelector('.typing-cursor');
+          if (cursor) cursor.remove();
+        }
+        delete activeStreamBubbles[currentChatId];
+      }
 
       // Init generation state
       setGenText(currentChatId, '');
@@ -2113,6 +2289,9 @@
       endReceivedForChat[currentChatId] = false;
       currentBotMessageEl = null;
 
+      // Render live stream bubble immediately
+      ensureStreamBubble(currentChatId);
+      refreshChatListIndicators();
       scrollToBottom();
     }
 
@@ -2315,10 +2494,17 @@
       currentChatId = null;
       chats = [];
 
+      for (const k in chatStreams) delete chatStreams[k];
+      for (const k in endReceivedForChat) delete endReceivedForChat[k];
+      for (const k in activeStreamBubbles) delete activeStreamBubbles[k];
+      currentBotMessageEl = null;
+
       document.getElementById('app').classList.add('hidden');
-      document.getElementById('authModal').classList.remove('hidden');
       document.getElementById('messageContainer').innerHTML = '';
       document.getElementById('chatList').innerHTML = '';
+
+      // Immediately create a fresh user and first chat!
+      createUser();
     }
 
     // Expose for window
@@ -2341,6 +2527,9 @@
     window.setRating = setRating;
     window.toggleTag = toggleTag;
     window.submitEvaluation = submitEvaluation;
+    window.refreshChatListIndicators = refreshChatListIndicators;
+    window.renderStreamIfNeeded = renderStreamIfNeeded;
+    window.isChatStreaming = isChatStreaming;
   </script>
 </body>
 </html>
