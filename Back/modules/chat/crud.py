@@ -209,6 +209,18 @@ async def update_reaction(db: AsyncSession,
     await db.flush()
     return message
 
+@safe_crud
+async def block_chat(db: AsyncSession,
+                          chat_id: int
+                     ) -> Optional[Chat]:
+    result = await db.execute(select(Chat).where(Chat.id == chat_id))
+    chat = result.scalar_one_or_none()
+    if not chat:
+        raise ValueError(f"Message {chat_id} not found")
+    setattr(chat, 'is_blocked', True)
+    await db.flush()
+    return chat
+
 # =======Tickets=======
 # select
 
