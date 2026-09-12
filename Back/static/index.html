@@ -1952,6 +1952,7 @@
 
           const contentEl = bubble.querySelector('.bubble-content');
           if (contentEl && fullText) {
+            contentEl.style.whiteSpace = '';
             contentEl.innerHTML = renderMarkdown(fullText);
           }
 
@@ -2050,7 +2051,10 @@
       if (!row) return;
       const contentEl = row.querySelector('.bubble-content');
       if (contentEl) {
-        contentEl.innerHTML = renderMarkdown(text);
+        // Partial Markdown may contain unfinished links or markup.
+        // Render tokens immediately; apply Markdown to the final server text.
+        contentEl.textContent = text;
+        contentEl.style.whiteSpace = 'pre-wrap';
       }
       const line = detectSupportLine(text);
       const badge = row.querySelector('.line-badge');
