@@ -11,7 +11,7 @@ event_manager.register(PingEvent)
 
 # chat
 from Back.modules.chat.events import (
-    NewMessageEvent,NewTokenEvent,
+    NewMessageEvent, NewTokenEvent,
     EndGenerationEvent,
     NewMessageResponseEvent,
     GenerationRestoreEvent,
@@ -25,3 +25,21 @@ event_manager.register(NewTokenEvent)
 event_manager.register(EndGenerationEvent)
 event_manager.register(NewMessageResponseEvent)
 
+# support
+from Back.modules.support.events import (
+    SupportResponseEvent,
+    SupportMessageEvent,
+    UpdateDialogStatusEvent,
+    UserFeedbackRequestEvent,
+    SupportRequestEvent,
+    EndSupportDialogEvent,
+    UserFeedbackResponseEvent,
+)
+
+event_manager.register(SupportResponseEvent)
+event_manager.register(SupportMessageEvent)
+event_manager.register(UpdateDialogStatusEvent)
+event_manager.register(UserFeedbackRequestEvent)
+event_manager.register(SupportRequestEvent)
+event_manager.register(EndSupportDialogEvent)
+event_manager.register(UserFeedbackResponseEvent)

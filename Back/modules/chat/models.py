@@ -35,6 +35,11 @@ class Chat(Base):
         default=False,
         nullable=False
     )
+    is_blocked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
 
 
 

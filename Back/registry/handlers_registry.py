@@ -13,3 +13,23 @@ from Back.modules.chat.events import NewMessageEvent, GenerationRestoreEvent, Ne
 
 handler_manager.register(NewMessageEvent, message_handler)
 handler_manager.register(GenerationRestoreEvent, restore_handler)
+
+# handlers_registry.py
+from Back.core.events_bus.handler_manager import handler_manager
+from Back.modules.support.events import (
+    SupportRequestEvent,
+    SupportMessageEvent,
+    EndSupportDialogEvent,
+    UserFeedbackResponseEvent,
+)
+from Back.modules.support.handlers import (
+    ask_support_handler,
+    support_send_message_handler,
+    end_support_dialog_client_handler,
+    support_feedback_handler,
+)
+
+handler_manager.register(SupportRequestEvent, ask_support_handler)
+handler_manager.register(SupportMessageEvent, support_send_message_handler)
+handler_manager.register(EndSupportDialogEvent, end_support_dialog_client_handler)
+handler_manager.register(UserFeedbackResponseEvent, support_feedback_handler)

@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from Back.core.events_bus.events import ErrorEvent, ErrorCode
 from Back.infra.redis.streams import add_new_emit
+from Back.modules.support.handlers import ask_support_handler
+from Back.modules.support.events import SupportRequestEvent, SupportRequestData
 from Back.modules.chat import crud
 from Back.modules.chat.streams import add_new_chat_stream
 from Back.modules.chat.events import NewTokenEvent, EndGenerationEvent
@@ -53,6 +55,23 @@ async def end_generation_handler(
         )
         await db.commit()
         await add_new_emit(redis=redis, event=event, user_uuid=event.data.user_uuid)
+        if event.meta.get("need_to_call_support") and event.meta.get("user_query"):
+            await ask_support_handler(
+                redis=redis,
+                event=SupportRequestEvent(
+                    data=SupportRequestData(
+                        user_uuid=event.data.user_uuid,
+                        text=event.meta.get("user_query")
+                    )
+                ),
+                db=db
+            )
+        elif event.meta.get("need_to_call_support"):
+            raise Exception("ДУРАЧЬЕ ВЫ В МЕТУ НЕ ПЕРЕДАЛИ ЗАПРОС - ЧТО БЫ ОПЕРАТОРУ ОТОСЛАТЬ")
+        if event.meta.get("need_to_block_chat"):
+            logger.info("НУЖНО ДОПИСАТЬ ЛОГИКУ БЛОКИРОВКИ ЧАТА!!!")
+
+
         logger.info(f"Generation chat {event.data.chat_id} ends successfully ")
     except Exception:
         logger.error(f"Generation chat {event.data.chat_id} failed", exc_info=True)
