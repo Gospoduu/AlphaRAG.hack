@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Тест: диалог с оператором поддержки</title>
+<style>
+  :root {
+    --bg: #f1f5f9;
+    --panel: #ffffff;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --danger: #ef4444;
+    --success: #10b981;
+    --bubble-user: #e0f2fe;
+    --bubble-support: #ffffff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: #0f172a;
+    color: #fff;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 15px; font-weight: 700; }
+  .header-right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #cbd5e1; }
+  .ws-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px; font-weight: 600;
+    background: rgba(239,68,68,0.15); color: #f87171;
+  }
+  .ws-pill.online { background: rgba(16,185,129,0.15); color: #34d399; }
+  .ws-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .user-uuid { font-family: ui-monospace, monospace; background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 6px; }
+
+  .app { flex: 1; display: grid; grid-template-columns: 280px 1fr; overflow: hidden; }
+
+  aside {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .aside-header { padding: 14px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 700; }
+  .dialog-list { flex: 1; overflow-y: auto; list-style: none; padding: 8px; }
+  .dialog-item {
+    padding: 10px 12px; border-radius: 10px; cursor: pointer; margin-bottom: 4px;
+    border: 1px solid transparent; transition: all 0.15s;
+  }
+  .dialog-item:hover { background: #f8fafc; }
+  .dialog-item.active { background: #eff6ff; border-color: #bfdbfe; }
+  .dialog-item-problem { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dialog-item-meta { font-size: 11px; color: var(--muted); margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+  .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; color: #fff; }
+  .badge.open { background: var(--success); }
+  .badge.closed { background: var(--muted); }
+  .aside-empty { padding: 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
+
+  main {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 24px;
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 560px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .empty-box {
+    margin: auto;
+    text-align: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 440px;
+  }
+  .empty-box p { color: var(--muted); font-size: 13.5px; margin-bottom: 16px; }
+  .ask-textarea {
+    width: 100%; min-height: 80px; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 13.5px; font-family: inherit; resize: vertical; outline: none;
+    margin-bottom: 14px;
+  }
+  .ask-textarea:focus { border-color: var(--primary); }
+
+  .btn-primary {
+    background: var(--primary); color: #fff; border: none; padding: 11px 18px;
+    border-radius: 10px; font-size: 13.5px; font-weight: 700; cursor: pointer; width: 100%;
+  }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-danger {
+    background: #fff; color: var(--danger); border: 1px solid #fca5a5; padding: 9px 14px;
+    border-radius: 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; margin-top: 12px;
+  }
+  .btn-danger:hover { background: #fef2f2; }
+
+  .supporter-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between;
+  }
+  .supporter-card .name { font-size: 13.5px; font-weight: 700; }
+  .supporter-card .dept { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .status-badge { font-size: 11px; font-weight: 700; color: var(--primary); background: #eff6ff; padding: 3px 9px; border-radius: 12px; }
+
+  .messages-list {
+    flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+  }
+  .msg-row { display: flex; }
+  .msg-row.user { justify-content: flex-end; }
+  .msg-bubble {
+    max-width: 80%; padding: 8px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5;
+    background: var(--bubble-support); border: 1px solid var(--border);
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .msg-row.user .msg-bubble { background: var(--bubble-user); border-color: #bfdbfe; }
+  .msg-row.initial-request { justify-content: center; }
+  .msg-row.initial-request .msg-bubble {
+    background: #fef3c7; border-color: #fcd34d; color: #78350f; text-align: center;
+  }
+
+  .composer { display: flex; gap: 8px; margin-top: 12px; }
+  .composer input {
+    flex: 1; border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 12px;
+    font-size: 13.5px; outline: none;
+  }
+  .composer input:focus { border-color: var(--primary); }
+  .composer button {
+    background: var(--primary); color: #fff; border: none; border-radius: 10px;
+    padding: 0 18px; font-weight: 700; cursor: pointer;
+  }
+
+  .feedback-form {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px; margin: auto; max-width: 420px; text-align: center;
+  }
+  .feedback-form h3 { font-size: 17px; margin-bottom: 6px; }
+  .feedback-form p.sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .stars { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; }
+  .stars .star { font-size: 30px; color: #cbd5e1; cursor: pointer; transition: all 0.15s; }
+  .stars .star.active { color: #f59e0b; transform: scale(1.08); }
+  .feedback-textarea {
+    width: 100%; min-height: 70px; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 13px; font-family: inherit; resize: vertical; outline: none; margin-bottom: 16px;
+  }
+
+  .closed-summary {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    padding: 28px; margin: auto; max-width: 420px; text-align: center;
+  }
+  .closed-summary .stars-readonly { font-size: 26px; color: #f59e0b; margin: 10px 0; }
+  .closed-summary .comment { color: var(--muted); font-size: 13px; font-style: italic; margin-top: 10px; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎧 Тест: диалог с оператором поддержки</h1>
+  <div class="header-right">
+    <span class="user-uuid" id="userUuidLabel">—</span>
+    <div class="ws-pill" id="wsPill"><span class="ws-dot"></span><span id="wsPillText">Подключение...</span></div>
+  </div>
+</header>
+
+<div class="app">
+  <aside>
+    <div class="aside-header">Мои обращения</div>
+    <ul class="dialog-list" id="dialogList">
+      <li class="aside-empty">Загрузка...</li>
+    </ul>
+  </aside>
+
+  <main>
+    <div class="panel" id="panel">
+      <!-- рендерится динамически -->
+    </div>
+  </main>
+</div>
+
+<script>
+  // ==================== CONFIG ====================
+  // WS чат-сервиса (он проксирует события в Kafka support_request и обратно)
+  const CHAT_WS_URL_BASE = 'ws://localhost:8000/api/ws';
+  // REST сапорт-сервиса (свой порт/хост - поменяй под себя; не забудь CORS на той стороне)
+  const SUPPORT_API_BASE = 'http://localhost:8067/api';
+
+  // ==================== STATE ====================
+  let userUuid = null;
+  let socket = null;
+  let dialogs = [];
+  let currentDialog = null; // { id, supporter, messages, is_closed, feedback, feedback_text, awaitingFeedback, status }
+  const dialogStates = new Map();
+  let selectionVersion = 0;
+  let selectedRating = 5;
+  let heartbeatId = null;
+
+  const LS_USER_KEY = 'support_test_user_uuid';
+  const LS_DIALOG_KEY = 'support_test_dialog_id';
+
+  const panelEl = () => document.getElementById('panel');
+  const escapeHtml = (t) => String(t).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+
+  function getDialogState(id) {
+    if (!dialogStates.has(id)) {
+      dialogStates.set(id, { id, messages: [], supporter: null, draft: '',
+        is_closed: false, feedback: null, feedback_text: null,
+        awaitingFeedback: false, status: null });
+    }
+    return dialogStates.get(id);
+  }
+
+  // Match each id-less WS/local message only once, preserving repeated texts.
+  function mergeMessages(serverMessages, cachedMessages) {
+    const unmatched = [...cachedMessages];
+    const merged = serverMessages.map(message => {
+      const index = unmatched.findIndex(cached => cached.id
+        ? cached.id === message.id
+        : cached.role === message.role && cached.text === message.text);
+      if (index !== -1) unmatched.splice(index, 1);
+      return message;
+    });
+    return merged.concat(unmatched);
+  }
+
+  async function fetchMessages(dialogId) {
+    const messages = [];
+    while (true) {
+      const res = await fetch(`${SUPPORT_API_BASE}/dialogs/${dialogId}/messages?limit=200&offset=${messages.length}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      messages.push(...data.items);
+      if (!data.items.length || messages.length >= data.total) return messages;
+    }
+  }
+
+  // ==================== STARTUP ====================
+  document.addEventListener('DOMContentLoaded', async () => {
+    userUuid = localStorage.getItem(LS_USER_KEY);
+    if (!userUuid) {
+      userUuid = crypto.randomUUID();
+      localStorage.setItem(LS_USER_KEY, userUuid);
+    }
+    document.getElementById('userUuidLabel').textContent = userUuid;
+
+    connectWebSocket();
+    await fetchDialogs();
+
+    const savedId = localStorage.getItem(LS_DIALOG_KEY);
+    if (savedId && dialogs.find(d => d.id === savedId)) {
+      await selectDialog(savedId);
+    } else if (dialogs.length) {
+      await selectDialog(dialogs[0].id);
+    } else {
+      renderNoDialog();
+    }
+  });
+
+  // ==================== WEBSOCKET ====================
+  function connectWebSocket() {
+    const pill = document.getElementById('wsPill');
+    const pillText = document.getElementById('wsPillText');
+    pill.classList.remove('online');
+    pillText.textContent = 'Подключение...';
+
+    socket = new WebSocket(`${CHAT_WS_URL_BASE}/${userUuid}`);
+
+    socket.onopen = () => {
+      pill.classList.add('online');
+      pillText.textContent = 'Онлайн';
+      startHeartbeat();
+      // на реконнекте синхронизируемся с сервером через REST, а не полагаемся на WS-историю
+      fetchDialogs().then(() => {
+        if (currentDialog) selectDialog(currentDialog.id);
+      });
+    };
+
+    socket.onmessage = (evt) => {
+      let message;
+      try { message = JSON.parse(evt.data); } catch (e) { return; }
+      console.log('[WS IN]', message.event, message.data); // временный лог для отладки
+      // сервер всегда апперкейсит поле event (EventBase.normalize_string_fields) -
+      // сравниваем в нижнем регистре, чтобы не зависеть от точного кейса
+      const eventName = (message.event || '').toLowerCase();
+      switch (eventName) {
+        case 'support_response': handleSupportResponse(message); break;
+        case 'support_message': handleSupportMessage(message); break;
+        case 'update_dialog_status': handleUpdateDialogStatus(message); break;
+        case 'user_feedback_request': handleFeedbackRequest(message); break;
+        case 'error': handleError(message); break;
+        case 'pong': break;
+        default:
+          console.warn('[WS IN] необработанное событие:', message.event);
+          break;
+      }
+    };
+
+    socket.onerror = () => {
+      pill.classList.remove('online');
+      pillText.textContent = 'Ошибка связи';
+    };
+
+    socket.onclose = () => {
+      pill.classList.remove('online');
+      pillText.textContent = 'Отключен';
+      stopHeartbeat();
+    };
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    heartbeatId = setInterval(() => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ event: 'PING', status: 'OK', data: { user_uuid: userUuid } }));
+      }
+    }, 25000);
+  }
+  function stopHeartbeat() {
+    if (heartbeatId) { clearInterval(heartbeatId); heartbeatId = null; }
+  }
+
+  function sendEvent(eventName, data) {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      alert('WebSocket не подключен');
+      return false;
+    }
+    socket.send(JSON.stringify({ event: eventName, status: 'OK', data }));
+    return true;
+  }
+
+  // ==================== WS EVENT HANDLERS ====================
+  function handleSupportResponse(message) {
+    const data = message.data || {};
+    fetchDialogs().then(() => {
+      if (data.support_dialog_id) selectDialog(data.support_dialog_id);
+    });
+  }
+
+  function handleSupportMessage(message) {
+    const data = message.data || {};
+    const id = data.support_dialog_id || data.dialog_id;
+    if (!id) return;
+    const state = getDialogState(id);
+    if (!data.id || !state.messages.some(m => m.id === data.id)) {
+      state.messages.push({ id: data.id, role: 'support', text: data.text,
+        created_at: data.created_at || new Date().toISOString() });
+    }
+    if (currentDialog?.id === id) renderMessages();
+    else fetchDialogs();
+  }
+
+  function handleUpdateDialogStatus(message) {
+    const data = message.data || {};
+    if (!currentDialog || String(currentDialog.id) !== String(data.support_dialog_id)) return;
+    currentDialog.status = data.new_status;
+    renderDialogPanel();
+  }
+
+  function handleFeedbackRequest(message) {
+    const data = message.data || {};
+    fetchDialogs();
+    if (!currentDialog || String(currentDialog.id) !== String(data.support_dialog_id)) return;
+    currentDialog.is_closed = true;
+    currentDialog.awaitingFeedback = true;
+    renderDialogPanel();
+  }
+
+  function handleError(message) {
+    const details = message.data?.details || 'Неизвестная ошибка';
+    alert('Ошибка от сервера: ' + details);
+  }
+
+  // ==================== REST: DIALOGS ====================
+  async function fetchDialogs() {
+    console.log('[REST] GET', `${SUPPORT_API_BASE}/dialogs/user/${userUuid}`); // временный лог
+    try {
+      const res = await fetch(`${SUPPORT_API_BASE}/dialogs/user/${userUuid}`);
+      const body = res.ok ? await res.json() : await res.text();
+      console.log('[REST] статус', res.status, 'тело', body); // временный лог
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      dialogs = body;
+      await Promise.all(dialogs.map(async d => {
+        try {
+          const response = await fetch(`${SUPPORT_API_BASE}/supporters/${d.id}`);
+          if (response.ok) getDialogState(d.id).supporter = await response.json();
+        } catch (error) { console.warn('Не удалось загрузить специалиста:', error); }
+      }));
+      dialogs.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+      hideApiErrorBanner();
+    } catch (e) {
+      console.error('Не удалось получить список диалогов (CORS? неверный SUPPORT_API_BASE? сервис не поднят?):', e);
+      showApiErrorBanner();
+    }
+    renderDialogList();
+  }
+
+  function showApiErrorBanner() {
+    let banner = document.getElementById('apiErrorBanner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'apiErrorBanner';
+      banner.style.cssText = 'background:#fef2f2;color:#991b1b;padding:8px 20px;font-size:12.5px;text-align:center;border-bottom:1px solid #fecdd3;';
+      banner.textContent = `⚠️ Не удалось достучаться до ${SUPPORT_API_BASE} — проверь, что сапорт-сервис поднят и на нём включён CORS. Подробности в консоли (F12).`;
+      document.body.insertBefore(banner, document.body.firstChild);
+    }
+  }
+  function hideApiErrorBanner() {
+    const banner = document.getElementById('apiErrorBanner');
+    if (banner) banner.remove();
+  }
+
+  function renderDialogList() {
+    const list = document.getElementById('dialogList');
+    if (!dialogs.length) {
+      list.innerHTML = `<li class="aside-empty">Нет обращений.<br/>Позовите оператора справа.</li>`;
+      return;
+    }
+    list.innerHTML = '';
+    dialogs.forEach(d => {
+      const li = document.createElement('li');
+      li.className = `dialog-item ${currentDialog && currentDialog.id === d.id ? 'active' : ''}`;
+      li.onclick = () => selectDialog(d.id);
+      li.innerHTML = `
+        <div class="dialog-item-problem">${escapeHtml(d.problem || 'Обращение')}</div>
+        <div class="dialog-item-meta">
+          <span class="badge ${d.is_closed ? 'closed' : 'open'}">${d.is_closed ? 'закрыт' : 'открыт'}</span>
+          <span>${escapeHtml(dialogStates.get(d.id)?.supporter?.line != null ? `Линия поддержки: ${dialogStates.get(d.id).supporter.line}` : 'Линия поддержки: не назначена')}</span>
+          ${d.feedback ? `<span>★ ${d.feedback}/5</span>` : ''}
+        </div>
+      `;
+      list.appendChild(li);
+    });
+  }
+
+  async function selectDialog(dialogId) {
+    const version = ++selectionVersion;
+    if (currentDialog) {
+      currentDialog.draft = document.getElementById('messageInput')?.value ?? currentDialog.draft;
+    }
+    localStorage.setItem(LS_DIALOG_KEY, dialogId);
+    const state = getDialogState(dialogId);
+    const meta = dialogs.find(d => d.id === dialogId);
+    if (meta) Object.assign(state, meta);
+    currentDialog = state;
+    renderDialogList();
+    renderDialogPanel();
+
+    try {
+      const [supporterRes, messages] = await Promise.all([
+        fetch(`${SUPPORT_API_BASE}/supporters/${dialogId}`),
+        fetchMessages(dialogId),
+      ]);
+      if (supporterRes.ok) state.supporter = await supporterRes.json();
+      state.messages = mergeMessages(messages, state.messages);
+      if (version !== selectionVersion) return;
+      state.draft = document.getElementById('messageInput')?.value ?? state.draft;
+      renderDialogList();
+      renderDialogPanel();
+    } catch (e) {
+      console.error('Не удалось загрузить диалог:', e);
+      // Keep cached messages and drafts when REST is unavailable.
+    }
+  }
+
+  // ==================== ACTIONS ====================
+  function askOperator() {
+    const textEl = document.getElementById('askOperatorText');
+    const text = (textEl?.value || '').trim();
+    if (!text) { alert('Опишите проблему для оператора'); return; }
+    if (!sendEvent('SUPPORT_REQUEST', { user_uuid: userUuid, text })) return;
+    panelEl().innerHTML = `<div class="empty-box"><p>⏳ Обращение отправлено, ожидаем назначения специалиста...</p></div>`;
+  }
+
+  function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    if (!text || !currentDialog) return;
+    if (!sendEvent('SUPPORT_MESSAGE', { user_uuid: userUuid, support_dialog_id: currentDialog.id, text })) return;
+    currentDialog.messages.push({ role: 'user', text, created_at: new Date().toISOString() });
+    currentDialog.draft = '';
+    renderMessages();
+    input.value = '';
+  }
+
+  function endDialog() {
+    if (!currentDialog) return;
+    if (!confirm('Завершить диалог с оператором?')) return;
+    sendEvent('END_SUPPORT_DIALOG_REQUEST', { user_uuid: userUuid, support_dialog_id: currentDialog.id });
+  }
+
+  function submitFeedback() {
+    if (!currentDialog) return;
+    const text = document.getElementById('feedbackText')?.value.trim() || null;
+    const ok = sendEvent('USER_FEEDBACK_RESPONSE', {
+      user_uuid: userUuid,
+      support_dialog_id: currentDialog.id,
+      feedback: selectedRating,
+      feedback_text: text,
+    });
+    if (!ok) return;
+    currentDialog.feedback = selectedRating;
+    currentDialog.feedback_text = text;
+    currentDialog.awaitingFeedback = false;
+    renderDialogPanel();
+    fetchDialogs();
+  }
+
+  // ==================== RENDER ====================
+  function renderDialogPanel() {
+    if (!currentDialog) { renderNoDialog(); return; }
+    if (currentDialog.awaitingFeedback || (currentDialog.is_closed && currentDialog.feedback === null)) {
+      renderFeedbackForm();
+    } else if (currentDialog.is_closed && currentDialog.feedback !== null) {
+      renderClosedWithFeedback();
+    } else {
+      renderActiveDialog();
+    }
+  }
+
+  function renderNoDialog() {
+    panelEl().innerHTML = `
+      <div class="empty-box">
+        <p>У вас нет активных обращений в поддержку.</p>
+        <textarea id="askOperatorText" class="ask-textarea" placeholder="Кратко опишите проблему..."></textarea>
+        <button class="btn-primary" onclick="askOperator()">🎧 Позвать оператора</button>
+      </div>
+    `;
+  }
+
+  function renderActiveDialog() {
+    const supporterName = currentDialog.supporter?.name || 'Специалист назначается...';
+    const supporterDept = currentDialog.supporter?.department || '';
+    panelEl().innerHTML = `
+      <div class="supporter-card">
+        <div>
+          <div class="name">${escapeHtml(supporterName)}</div>
+          <div class="dept">Линия поддержки: ${escapeHtml(currentDialog.supporter?.line ?? 'не назначена')}</div>
+          ${supporterDept ? `<div class="dept">${escapeHtml(supporterDept)}</div>` : ''}
+        </div>
+        ${currentDialog.status ? `<span class="status-badge">${escapeHtml(currentDialog.status)}</span>` : ''}
+      </div>
+      <div class="messages-list" id="messagesList"></div>
+      <div class="composer">
+        <input id="messageInput" placeholder="Написать специалисту..." onkeydown="if(event.key==='Enter') sendMessage();" />
+        <button onclick="sendMessage()">➤</button>
+      </div>
+      <button class="btn-danger" onclick="endDialog()">Завершить диалог</button>
+    `;
+    document.getElementById('messageInput').value = currentDialog.draft;
+    renderMessages();
+  }
+
+  function renderMessages() {
+    const list = document.getElementById('messagesList');
+    if (!list || !currentDialog) return;
+    const messages = [...currentDialog.messages];
+    if (currentDialog.problem && !(messages[0]?.role === 'user' && messages[0].text === currentDialog.problem)) {
+      messages.unshift({ role: 'user', text: currentDialog.problem });
+    }
+    list.innerHTML = messages.map((m, index) => `
+      <div class="msg-row ${index === 0 && currentDialog.problem ? 'initial-request' : m.role === 'user' ? 'user' : ''}">
+        <div class="msg-bubble">${escapeHtml(m.text)}</div>
+      </div>
+    `).join('');
+    list.scrollTop = list.scrollHeight;
+  }
+
+  function renderFeedbackForm() {
+    selectedRating = 5;
+    panelEl().innerHTML = `
+      <div class="feedback-form">
+        <h3>Диалог завершён</h3>
+        <p class="sub">Оцените работу специалиста поддержки</p>
+        <div class="stars" id="starsEl">
+          ${[1,2,3,4,5].map(v => `<span class="star active" data-val="${v}" onclick="setRating(${v})">★</span>`).join('')}
+        </div>
+        <textarea id="feedbackText" class="feedback-textarea" placeholder="Комментарий (необязательно)"></textarea>
+        <button class="btn-primary" onclick="submitFeedback()">Отправить оценку</button>
+      </div>
+    `;
+  }
+
+  function setRating(val) {
+    selectedRating = val;
+    document.querySelectorAll('#starsEl .star').forEach(s => {
+      s.classList.toggle('active', Number(s.dataset.val) <= val);
+    });
+  }
+
+  function renderClosedWithFeedback() {
+    panelEl().innerHTML = `
+      <div class="closed-summary">
+        <h3>Диалог завершён</h3>
+        <div class="stars-readonly">${'★'.repeat(currentDialog.feedback)}${'☆'.repeat(5 - currentDialog.feedback)}</div>
+        <div>Оценка: ${currentDialog.feedback}/5</div>
+        ${currentDialog.feedback_text ? `<div class="comment">«${escapeHtml(currentDialog.feedback_text)}»</div>` : ''}
+      </div>
+    `;
+  }
+
+  // expose for inline handlers
+  window.askOperator = askOperator;
+  window.sendMessage = sendMessage;
+  window.endDialog = endDialog;
+  window.submitFeedback = submitFeedback;
+  window.setRating = setRating;
+</script>
+</body>
+</html>
