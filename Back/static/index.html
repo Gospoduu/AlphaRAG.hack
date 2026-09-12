@@ -1474,51 +1474,79 @@
     }
     function setLSObj(key, obj) { localStorage.setItem(key, JSON.stringify(obj)); }
 
+    // Case-insensitive and type-safe chat ID helpers
+    function normalizeChatId(id) {
+      if (id === undefined || id === null) return '';
+      return String(id).trim().toLowerCase();
+    }
+
+    function isSameChat(idA, idB) {
+      const a = normalizeChatId(idA);
+      const b = normalizeChatId(idB);
+      if (!a || !b) return false;
+      if (a === b) return true;
+      const numA = Number(a);
+      const numB = Number(b);
+      if (!isNaN(numA) && !isNaN(numB) && numA === numB) return true;
+      return false;
+    }
+
     function setLastId(chatId, lastId) {
-      if (!chatId || !lastId) return;
+      const cid = normalizeChatId(chatId);
+      if (!cid || !lastId) return;
       const m = safeParseLS(LS_STREAM_IDS_KEY, {});
-      m[String(chatId)] = String(lastId);
+      m[cid] = String(lastId);
       setLSObj(LS_STREAM_IDS_KEY, m);
     }
     function extractLastId(message) {
-      return message?.meta?.last_id ?? message?.meta?.stream_id ?? null;
+      const data = message?.data || message?.payload || message || {};
+      return message?.meta?.last_id ?? message?.meta?.stream_id ?? data?.last_id ?? data?.stream_id ?? null;
     }
     function setGenText(chatId, text) {
-      if (!chatId) return;
+      const cid = normalizeChatId(chatId);
+      if (!cid) return;
       const m = safeParseLS(LS_GEN_TEXT_KEY, {});
-      m[String(chatId)] = String(text || '');
+      m[cid] = String(text || '');
       setLSObj(LS_GEN_TEXT_KEY, m);
     }
     function getGenText(chatId) {
+      const cid = normalizeChatId(chatId);
+      if (!cid) return '';
       const m = safeParseLS(LS_GEN_TEXT_KEY, {});
-      return m[String(chatId)] || '';
+      return m[cid] || '';
     }
     function setGenActive(chatId, active) {
-      if (!chatId) return;
+      const cid = normalizeChatId(chatId);
+      if (!cid) return;
       const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
-      m[String(chatId)] = !!active;
+      m[cid] = !!active;
       setLSObj(LS_GEN_ACTIVE_KEY, m);
     }
     function isGenActive(chatId) {
+      const cid = normalizeChatId(chatId);
+      if (!cid) return false;
       const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
-      return !!m[String(chatId)];
+      return !!m[cid];
     }
     function isChatStreaming(chatId) {
-      if (!chatId) return false;
-      const strObj = chatStreams[chatId];
+      const cid = normalizeChatId(chatId);
+      if (!cid) return false;
+      const strObj = chatStreams[cid];
       if (strObj && strObj.active !== undefined) {
         return !!strObj.active;
       }
-      return isGenActive(chatId);
+      return isGenActive(cid);
     }
     function clearGen(chatId) {
-      if (!chatId) return;
-      setGenText(chatId, '');
-      setGenActive(chatId, false);
+      const cid = normalizeChatId(chatId);
+      if (!cid) return;
+      setGenText(cid, '');
+      setGenActive(cid, false);
     }
     function getStreamBubble(chatId = currentChatId) {
-      if (!chatId) return null;
-      const el = activeStreamBubbles[chatId];
+      const cid = normalizeChatId(chatId || currentChatId);
+      if (!cid) return null;
+      const el = activeStreamBubbles[cid];
       const container = document.getElementById('messageContainer');
       if (el && container && container.contains(el)) {
         return el;
@@ -1622,8 +1650,9 @@
 
         await fetchChats();
 
-        if (savedChatId && chats.find(c => c.id === Number(savedChatId))) {
-          currentChatId = Number(savedChatId);
+        const matchingChat = savedChatId ? chats.find(c => isSameChat(c.id, savedChatId)) : null;
+        if (matchingChat) {
+          currentChatId = matchingChat.id;
         } else if (chats.length > 0) {
           currentChatId = chats[0].id;
         }
@@ -1720,24 +1749,55 @@
       socket.onmessage = function (event) {
         try {
           const message = JSON.parse(event.data);
-          const ev = (message.event || '').toLowerCase();
-          switch (ev) {
-            case 'new_token':
-              handleNewToken(message);
-              break;
-            case 'end_generation':
-              handleEndGeneration(message);
-              break;
-            case 'generated_text':
-              handleGeneratedText(message);
-              break;
-            case 'pong':
-              break;
-            case 'error':
-              handleServerError(message);
-              break;
-            default:
-              break;
+          console.log('[WS INCOMING]', message);
+
+          // Extract event name flexibly (case-insensitive, strip prefixes)
+          const rawEv = message.event || message.event_name || message.eventName || message.type || message.action || '';
+          let ev = String(rawEv).toLowerCase().trim();
+          if (ev.startsWith('event_')) {
+            ev = ev.substring(6);
+          }
+
+          const data = message.data || message.payload || message || {};
+
+          if (
+            ev === 'new_token' ||
+            ev === 'token' ||
+            ev === 'chunk' ||
+            ev === 'delta' ||
+            ev.includes('token') ||
+            (data.token !== undefined || data.Token !== undefined)
+          ) {
+            handleNewToken(message);
+          } else if (
+            ev === 'end_generation' ||
+            ev === 'generation_end' ||
+            ev === 'endgeneration' ||
+            ev === 'done' ||
+            ev === 'finish' ||
+            ev === 'finished' ||
+            ev === 'completed' ||
+            ev === 'complete' ||
+            ev === 'stop' ||
+            ev === 'end' ||
+            ev.includes('end_gen') ||
+            ev.includes('endgeneration')
+          ) {
+            handleEndGeneration(message);
+          } else if (
+            ev === 'generated_text' ||
+            ev === 'message_response' ||
+            ev === 'new_message_response' ||
+            ev.includes('generated_text') ||
+            ev.includes('message_response')
+          ) {
+            handleGeneratedText(message);
+          } else if (ev === 'pong' || ev.includes('pong')) {
+            // Heartbeat response
+          } else if (ev === 'error' || ev.includes('error')) {
+            handleServerError(message);
+          } else {
+            console.warn('[WS UNKNOWN EVENT]', rawEv, message);
           }
         } catch (err) {
           console.error('WS parse error:', err);
@@ -1776,69 +1836,81 @@
 
     // ---------------- STREAM HANDLERS ----------------
     function handleNewToken(message) {
-      const data = message.data || {};
-      const chatId = Number(data.chat_id);
-      const token = data.token ?? '';
+      const data = message.data || message.payload || message || {};
+      const rawChatId = data.chat_id ?? data.chatId ?? data.chat_Id ?? data.Chat_Id ?? data.chat_ID ??
+                        message.chat_id ?? message.chatId ?? currentChatId;
+      const cid = normalizeChatId(rawChatId || currentChatId);
+      if (!cid) return;
+
+      const token = data.token ?? data.Token ?? data.text ?? data.chunk ?? data.delta ??
+                    message.token ?? message.Token ?? message.chunk ?? message.delta ?? '';
 
       const lastId = extractLastId(message);
-      if (lastId) setLastId(chatId, lastId);
+      if (lastId) setLastId(cid, lastId);
 
-      const prev = getGenText(chatId);
+      const prev = getGenText(cid);
       const next = prev + token;
-      setGenText(chatId, next);
-      setGenActive(chatId, true);
+      setGenText(cid, next);
+      setGenActive(cid, true);
 
-      chatStreams[chatId] = { text: next, active: true };
-      endReceivedForChat[chatId] = false;
+      chatStreams[cid] = { text: next, active: true };
+      endReceivedForChat[cid] = false;
 
       refreshChatListIndicators();
 
-      if (chatId !== Number(currentChatId)) return;
+      if (!isSameChat(cid, currentChatId)) return;
 
-      ensureStreamBubble(chatId);
-      updateStreamContent(next, chatId);
+      ensureStreamBubble(cid);
+      updateStreamContent(next, cid);
       scrollToBottom();
     }
 
     function handleGeneratedText(message) {
-      const data = message.data || {};
-      const chatId = Number(data.chat_id);
-      const text = data.text ?? '';
+      const data = message.data || message.payload || message || {};
+      const rawChatId = data.chat_id ?? data.chatId ?? data.chat_Id ?? data.Chat_Id ?? data.chat_ID ??
+                        message.chat_id ?? message.chatId ?? currentChatId;
+      const cid = normalizeChatId(rawChatId || currentChatId);
+      if (!cid) return;
+
+      const text = data.text ?? data.Text ?? data.all_text ?? data.content ?? message.text ?? '';
 
       const lastId = extractLastId(message);
-      if (lastId) setLastId(chatId, lastId);
+      if (lastId) setLastId(cid, lastId);
 
-      const cur = getGenText(chatId);
+      const cur = getGenText(cid);
       const chosen = (cur && cur.length >= text.length && cur.startsWith(text)) ? cur : text;
 
-      setGenText(chatId, chosen);
-      setGenActive(chatId, true);
-      chatStreams[chatId] = { text: chosen, active: true };
+      setGenText(cid, chosen);
+      setGenActive(cid, true);
+      chatStreams[cid] = { text: chosen, active: true };
 
       refreshChatListIndicators();
 
-      if (chatId !== Number(currentChatId)) return;
-      ensureStreamBubble(chatId);
-      updateStreamContent(chosen, chatId);
+      if (!isSameChat(cid, currentChatId)) return;
+      ensureStreamBubble(cid);
+      updateStreamContent(chosen, cid);
       scrollToBottom();
     }
 
     function handleEndGeneration(message) {
-      const data = message.data || {};
-      const chatId = Number(data.chat_id);
+      const data = message.data || message.payload || message || {};
+      const rawChatId = data.chat_id ?? data.chatId ?? data.chat_Id ?? data.Chat_Id ?? data.chat_ID ??
+                        message.chat_id ?? message.chatId ?? currentChatId;
+      const cid = normalizeChatId(rawChatId || currentChatId);
+      if (!cid) return;
 
-      if (endReceivedForChat[chatId]) return;
-      endReceivedForChat[chatId] = true;
+      if (endReceivedForChat[cid]) return;
+      endReceivedForChat[cid] = true;
 
-      const fullText = (data.all_text ?? data.text ?? chatStreams[chatId]?.text ?? getGenText(chatId)) || '';
+      const fullText = (data.all_text ?? data.text ?? data.content ?? chatStreams[cid]?.text ?? getGenText(cid)) || '';
 
-      clearGen(chatId);
-      if (chatStreams[chatId]) chatStreams[chatId].active = false;
+      clearGen(cid);
+      if (chatStreams[cid]) chatStreams[cid].active = false;
 
       refreshChatListIndicators();
 
-      const bubbleEl = getStreamBubble(chatId);
-      if (chatId === Number(currentChatId) && bubbleEl) {
+      const bubbleEl = getStreamBubble(cid);
+      if (isSameChat(cid, currentChatId) && bubbleEl) {
         // Finalize streaming bubble
         const bubble = bubbleEl.querySelector('.bubble');
         if (bubble) {
@@ -1879,43 +1951,46 @@
             bubbleEl.querySelector('.message-body').appendChild(act);
           }
         }
-        delete activeStreamBubbles[chatId];
+        delete activeStreamBubbles[cid];
         currentBotMessageEl = null;
         scrollToBottom();
       } else {
-        delete activeStreamBubbles[chatId];
+        delete activeStreamBubbles[cid];
       }
     }
 
     function handleServerError(message) {
-      const details = message.data?.details ?? 'Неизвестная ошибка сервера';
-      const chatId = Number(message.data?.chat_id || currentChatId);
+      const data = message.data || message.payload || message || {};
+      const details = data.details || message.details || 'Неизвестная ошибка сервера';
+      const rawChatId = data.chat_id ?? data.chatId ?? message.chat_id ?? currentChatId;
+      const cid = normalizeChatId(rawChatId || currentChatId);
       appendSystemMessage(`❌ Ошибка: ${details}`, 'danger');
-      if (chatId) {
-        clearGen(chatId);
-        if (chatStreams[chatId]) chatStreams[chatId].active = false;
-        delete activeStreamBubbles[chatId];
+      if (cid) {
+        clearGen(cid);
+        if (chatStreams[cid]) chatStreams[cid].active = false;
+        delete activeStreamBubbles[cid];
       }
       currentBotMessageEl = null;
       refreshChatListIndicators();
     }
 
     function ensureStreamBubble(chatId = currentChatId) {
-      if (!chatId || Number(chatId) !== Number(currentChatId)) return null;
+      const cid = normalizeChatId(chatId || currentChatId);
+      if (!cid || !isSameChat(cid, currentChatId)) return null;
       const container = document.getElementById('messageContainer');
       if (!container) return null;
 
       const emptyState = container.querySelector('.empty-state');
       if (emptyState) emptyState.remove();
 
-      let row = getStreamBubble(chatId);
+      let row = getStreamBubble(cid);
       if (!row) {
         row = document.createElement('div');
         row.className = 'message-row bot';
         row.dataset.kind = 'stream';
-        row.dataset.chatId = String(chatId);
+        row.dataset.chatId = cid;
 
-        const currentText = getGenText(chatId);
+        const currentText = getGenText(cid);
         const line = detectSupportLine(currentText || '');
 
         row.innerHTML = `
@@ -1933,15 +2008,16 @@
           </div>
         `;
         container.appendChild(row);
-        activeStreamBubbles[chatId] = row;
+        activeStreamBubbles[cid] = row;
         currentBotMessageEl = row;
       }
       return row;
     }
 
     function updateStreamContent(text, chatId = currentChatId) {
-      if (!chatId || Number(chatId) !== Number(currentChatId)) return;
-      const row = ensureStreamBubble(chatId);
+      const cid = normalizeChatId(chatId || currentChatId);
+      if (!cid || !isSameChat(cid, currentChatId)) return;
+      const row = ensureStreamBubble(cid);
       if (!row) return;
       const contentEl = row.querySelector('.bubble-content');
       if (contentEl) {
@@ -1956,20 +2032,21 @@
     }
 
     function renderStreamIfNeeded(chatId) {
-      if (!chatId || Number(chatId) !== Number(currentChatId)) return;
-      const active = isChatStreaming(chatId);
-      const txt = getGenText(chatId);
+      const cid = normalizeChatId(chatId || currentChatId);
+      if (!cid || !isSameChat(cid, currentChatId)) return;
+      const active = isChatStreaming(cid);
+      const txt = getGenText(cid);
 
       if (!active) {
-        delete activeStreamBubbles[chatId];
+        delete activeStreamBubbles[cid];
         currentBotMessageEl = null;
         return;
       }
 
-      chatStreams[chatId] = { text: txt, active: true };
-      ensureStreamBubble(chatId);
+      chatStreams[cid] = { text: txt, active: true };
+      ensureStreamBubble(cid);
       if (txt) {
-        updateStreamContent(txt, chatId);
+        updateStreamContent(txt, cid);
       }
       scrollToBottom();
     }
@@ -2006,7 +2083,8 @@
       chats.forEach(chat => {
         const li = document.createElement('li');
         const streaming = isChatStreaming(chat.id);
-        li.className = `chat-item ${currentChatId === chat.id ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
+        const isActive = isSameChat(chat.id, currentChatId);
+        li.className = `chat-item ${isActive ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
         li.dataset.chatId = String(chat.id);
         li.onclick = (e) => {
           if (e.target.closest('.btn-delete-chat')) return;
@@ -2028,7 +2106,7 @@
               <div class="chat-item-sub">ID: ${chat.id}</div>
             </div>
           </div>
-          <button class="btn-delete-chat" onclick="deleteChat(${chat.id})" title="Удалить диалог">🗑</button>
+          <button class="btn-delete-chat" onclick="deleteChat('${escapeHtml(String(chat.id))}')" title="Удалить диалог">🗑</button>
         `;
         list.appendChild(li);
       });
@@ -2037,7 +2115,7 @@
     function refreshChatListIndicators() {
       const items = document.querySelectorAll('#chatList .chat-item');
       items.forEach(li => {
-        const id = Number(li.dataset.chatId);
+        const id = li.dataset.chatId;
         if (!id) return;
         const streaming = isChatStreaming(id);
         li.classList.toggle('is-streaming', streaming);
@@ -2070,7 +2148,7 @@
     }
 
     async function selectChat(chatId) {
-      if (currentChatId === chatId) return;
+      if (isSameChat(currentChatId, chatId)) return;
       currentChatId = chatId;
       setCurrentChatId(chatId);
       localStorage.setItem(LS_CHAT_KEY, String(chatId));
@@ -2081,7 +2159,7 @@
     }
 
     function setCurrentChatId(chatId) {
-      const activeChat = chats.find(c => c.id === chatId);
+      const activeChat = chats.find(c => isSameChat(c.id, chatId));
       const titleEl = document.getElementById('chatHeaderTitle');
       if (titleEl) titleEl.textContent = activeChat?.title || (chatId ? `Обращение #${chatId}` : 'Диалог не выбран');
     }
@@ -2115,11 +2193,12 @@
         const res = await fetch(`http://localhost:8000/api/chat/${chatId}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.status === 'ok') {
-          clearGen(chatId);
-          delete chatStreams[chatId];
-          delete activeStreamBubbles[chatId];
-          chats = chats.filter(c => c.id !== chatId);
-          if (currentChatId === chatId) {
+          const cid = normalizeChatId(chatId);
+          clearGen(cid);
+          delete chatStreams[cid];
+          delete activeStreamBubbles[cid];
+          chats = chats.filter(c => !isSameChat(c.id, chatId));
+          if (isSameChat(currentChatId, chatId)) {
             if (chats.length > 0) {
               currentChatId = chats[0].id;
               setCurrentChatId(currentChatId);
@@ -2142,8 +2221,9 @@
     // ---------------- LOAD MESSAGES ----------------
     async function loadMessages(chatId) {
       const myToken = ++loadMessagesToken;
+      const cid = normalizeChatId(chatId);
       currentBotMessageEl = null;
-      delete activeStreamBubbles[chatId];
+      delete activeStreamBubbles[cid];
 
       const container = document.getElementById('messageContainer');
       if (!container) return;
@@ -2154,7 +2234,7 @@
         const data = await res.json();
 
         // If user changed chat while fetch was in flight, abort rendering
-        if (myToken !== loadMessagesToken || Number(chatId) !== Number(currentChatId)) return;
+        if (myToken !== loadMessagesToken || !isSameChat(chatId, currentChatId)) return;
 
         if (data.status !== 'ok') {
           container.innerHTML = `<div style="color:var(--danger); text-align:center; padding: 20px;">Не удалось загрузить историю диалога</div>`;
@@ -2164,7 +2244,7 @@
         let msgs = data.messages || [];
         msgs.reverse(); // ASC order for UI
 
-        if (msgs.length === 0 && !isChatStreaming(chatId)) {
+        if (msgs.length === 0 && !isChatStreaming(cid)) {
           showEmptyChatPrompt();
           return;
         }
@@ -2248,12 +2328,13 @@
       updateLineBadge(line);
 
       // Send to WebSocket
+      const outgoingChatId = /^\d+$/.test(String(currentChatId)) ? parseInt(currentChatId, 10) : currentChatId;
       socket.send(JSON.stringify({
         event: 'NEW_MESSAGE',
         status: 'OK',
         data: {
           user_uuid: userUuid,
-          chat_id: currentChatId,
+          chat_id: outgoingChatId,
           text: text,
           answered_to: null,
           role: userRole
@@ -2271,26 +2352,28 @@
       const hint = document.getElementById('charCountHint');
       if (hint) hint.textContent = 'Символов: 0/1000';
 
+      const cid = normalizeChatId(currentChatId);
+
       // If there was an ongoing stream in this chat, finalize its UI bubble
-      if (activeStreamBubbles[currentChatId]) {
-        const oldBubble = activeStreamBubbles[currentChatId].querySelector('.bubble');
+      if (activeStreamBubbles[cid]) {
+        const oldBubble = activeStreamBubbles[cid].querySelector('.bubble');
         if (oldBubble) {
           oldBubble.classList.remove('streaming');
           const cursor = oldBubble.querySelector('.typing-cursor');
           if (cursor) cursor.remove();
         }
-        delete activeStreamBubbles[currentChatId];
+        delete activeStreamBubbles[cid];
       }
 
       // Init generation state
-      setGenText(currentChatId, '');
-      setGenActive(currentChatId, true);
-      chatStreams[currentChatId] = { text: '', active: true };
-      endReceivedForChat[currentChatId] = false;
+      setGenText(cid, '');
+      setGenActive(cid, true);
+      chatStreams[cid] = { text: '', active: true };
+      endReceivedForChat[cid] = false;
       currentBotMessageEl = null;
 
       // Render live stream bubble immediately
-      ensureStreamBubble(currentChatId);
+      ensureStreamBubble(cid);
       refreshChatListIndicators();
       scrollToBottom();
     }
