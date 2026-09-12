@@ -1474,10 +1474,39 @@
     }
     function setLSObj(key, obj) { localStorage.setItem(key, JSON.stringify(obj)); }
 
+    // Dynamic API & WebSocket host resolution (supports localhost, 127.0.0.1, custom ports/IPs)
+    function getApiBase() {
+      if (typeof window !== 'undefined' && window.location && window.location.origin && window.location.origin.startsWith('http')) {
+        return window.location.origin;
+      }
+      return 'http://localhost:8000';
+    }
+
+    function getWsBase() {
+      if (typeof window !== 'undefined' && window.location && window.location.host && window.location.origin.startsWith('http')) {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${proto}//${window.location.host}`;
+      }
+      return 'ws://localhost:8000';
+    }
+
     // Case-insensitive and type-safe chat ID helpers
     function normalizeChatId(id) {
       if (id === undefined || id === null) return '';
       return String(id).trim().toLowerCase();
+    }
+
+    function getChatDisplayTitle(chat) {
+      if (!chat) return 'Диалог не выбран';
+      const cid = normalizeChatId(chat.id);
+      const customTitle = localStorage.getItem('alpha_chat_title_' + cid);
+      if (customTitle && customTitle.trim()) {
+        return customTitle.trim();
+      }
+      if (chat.title && chat.title !== 'Новый чат' && chat.title !== 'Новый диалог' && chat.title.trim()) {
+        return chat.title.trim();
+      }
+      return `Обращение #${chat.id}`;
     }
 
     function isSameChat(idA, idB) {
@@ -1679,7 +1708,7 @@
       const role = selectedRole || params.get('role') || document.getElementById('userRoleSelect')?.value || 'user';
 
       try {
-        const response = await fetch('http://localhost:8000/api/user/', {
+        const response = await fetch(`${getApiBase()}/api/user/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ role })
@@ -1722,7 +1751,7 @@
 
     // ---------------- WEBSOCKET ----------------
     function connectWebSocket(uuid) {
-      const wsUrl = `ws://localhost:8000/api/ws/${uuid}`;
+      const wsUrl = `${getWsBase()}/api/ws/${uuid}`;
 
       if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
         try { socket.close(); } catch (_) {}
@@ -2055,7 +2084,12 @@
     async function fetchChats() {
       if (!userUuid) return;
       try {
-        const res = await fetch(`http://localhost:8000/api/chat/${userUuid}/chats`);
+        const res = await fetch(`${getApiBase()}/api/chat/${userUuid}/chats`);
+        if (res.status === 404 || res.status === 500) {
+          console.warn('User not found on backend when fetching chats, creating user...');
+          await createUser();
+          return;
+        }
         const data = await res.json();
         if (data.status === 'ok') {
           chats = data.chats || [];
@@ -2095,12 +2129,14 @@
           ? `<span class="streaming-tag"><span class="streaming-dot"></span> Ответ...</span>` 
           : '';
 
+        const displayTitle = getChatDisplayTitle(chat);
+
         li.innerHTML = `
           <div class="chat-item-main">
             <span class="chat-item-icon">${streaming ? '⚡' : '💬'}</span>
             <div class="chat-item-info">
               <div class="chat-item-title-row" style="display:flex; align-items:center; gap:6px;">
-                <div class="chat-item-title">${escapeHtml(chat.title || 'Обращение #' + chat.id)}</div>
+                <div class="chat-item-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</div>
                 ${streamBadge}
               </div>
               <div class="chat-item-sub">ID: ${chat.id}</div>
@@ -2156,47 +2192,84 @@
       renderChatList();
       await loadMessages(chatId);
       renderStreamIfNeeded(chatId);
+
+      const input = document.getElementById('messageInput');
+      if (input) input.focus();
     }
 
     function setCurrentChatId(chatId) {
       const activeChat = chats.find(c => isSameChat(c.id, chatId));
       const titleEl = document.getElementById('chatHeaderTitle');
-      if (titleEl) titleEl.textContent = activeChat?.title || (chatId ? `Обращение #${chatId}` : 'Диалог не выбран');
+      if (titleEl) {
+        titleEl.textContent = getChatDisplayTitle(activeChat || { id: chatId });
+      }
     }
 
     async function createChat() {
-      if (!userUuid) return;
+      const btn = document.querySelector('.btn-new-chat');
+      if (btn) btn.disabled = true;
+
+      // If user UUID is missing, create user first
+      if (!userUuid) {
+        await createUser();
+        if (btn) btn.disabled = false;
+        return;
+      }
+
       try {
-        const res = await fetch('http://localhost:8000/api/chat/', {
+        const res = await fetch(`${getApiBase()}/api/chat/`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_uuid: userUuid })
         });
+
+        // If backend says user not found (e.g. DB restarted or migration ran), recreate user & chat
+        if (res.status === 404 || res.status === 500) {
+          console.warn('Backend rejected user_uuid (404/500), auto-recreating user...');
+          await createUser();
+          if (btn) btn.disabled = false;
+          return;
+        }
+
         const data = await res.json();
         if (data.status === 'ok') {
-          await fetchChats();
           currentChatId = data.chat_id;
-          setCurrentChatId(currentChatId);
           localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
+          await fetchChats();
+          setCurrentChatId(currentChatId);
           renderChatList();
           await loadMessages(currentChatId);
           renderStreamIfNeeded(currentChatId);
+
+          const input = document.getElementById('messageInput');
+          if (input) {
+            input.value = '';
+            input.focus();
+          }
+        } else {
+          console.error('Failed to create chat:', data);
+          if (data.detail && (data.detail.includes('User not found') || data.detail.includes('foreign key') || data.detail.includes('violates'))) {
+            await createUser();
+          }
         }
       } catch (e) {
         console.error('Failed to create chat:', e);
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
     async function deleteChat(chatId) {
       if (!confirm(`Вы действительно хотите удалить диалог #${chatId}?`)) return;
       try {
-        const res = await fetch(`http://localhost:8000/api/chat/${chatId}`, { method: 'DELETE' });
+        const res = await fetch(`${getApiBase()}/api/chat/${chatId}`, { method: 'DELETE' });
         const data = await res.json();
         if (data.status === 'ok') {
           const cid = normalizeChatId(chatId);
           clearGen(cid);
           delete chatStreams[cid];
           delete activeStreamBubbles[cid];
+          localStorage.removeItem('alpha_chat_title_' + cid);
           chats = chats.filter(c => !isSameChat(c.id, chatId));
           if (isSameChat(currentChatId, chatId)) {
             if (chats.length > 0) {
@@ -2230,7 +2303,7 @@
       container.innerHTML = '';
 
       try {
-        const res = await fetch(`http://localhost:8000/api/chat/${chatId}/messages?start_message_idx=0&batch_size=50`);
+        const res = await fetch(`${getApiBase()}/api/chat/${chatId}/messages?start_message_idx=0&batch_size=50`);
         const data = await res.json();
 
         // If user changed chat while fetch was in flight, abort rendering
@@ -2353,6 +2426,16 @@
       if (hint) hint.textContent = 'Символов: 0/1000';
 
       const cid = normalizeChatId(currentChatId);
+
+      // Save first user question as friendly title for this chat
+      const customKey = 'alpha_chat_title_' + cid;
+      if (!localStorage.getItem(customKey)) {
+        const cleanText = text.replace(/\s+/g, ' ').trim();
+        const shortTitle = cleanText.length > 35 ? cleanText.slice(0, 35) + '...' : cleanText;
+        localStorage.setItem(customKey, shortTitle);
+        renderChatList();
+        setCurrentChatId(currentChatId);
+      }
 
       // If there was an ongoing stream in this chat, finalize its UI bubble
       if (activeStreamBubbles[cid]) {
