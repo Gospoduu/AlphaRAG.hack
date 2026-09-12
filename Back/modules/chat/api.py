@@ -2,9 +2,9 @@
 from fastapi import APIRouter, Depends
 from Back.infra.db.db import get_db
 from Back.utils.api import endpoint_try
-from .crud import get_user_chats, create_chat, delete_chat, get_chat_batch
+from .crud import get_user_chats, create_chat, delete_chat, get_chat_batch, update_reaction
 from uuid import UUID
-from .schemas import CreateChatBase
+from .schemas import CreateChatBase, PatchReaction
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -68,3 +68,14 @@ async def get_messages_endpoint(
         } for message in chat]
 
     return {"status": "ok", "messages": response}
+
+
+@router.patch("/reaction")
+@endpoint_try
+async def reaction_endpoint(
+    request: PatchReaction,
+    db: AsyncSession = Depends(get_db)
+):
+    # -1: dislike, 0: None, 1: like
+    await update_reaction(db=db, message_id=request.message_id, reaction=request.reaction)
+    return {"status": "ok", "message_id": request.message_id, "reaction": request.reaction}

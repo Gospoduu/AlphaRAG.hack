@@ -19,3 +19,7 @@ class ReactionBase(BaseModel):
 
 class PongBase(BaseModel):
     ping: str
+
+class PatchReaction(BaseModel):
+    message_id: int
+    reaction: MessageReaction
