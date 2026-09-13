@@ -77,7 +77,10 @@ for _cand in [
 if not media_mounted:
     @app.get("/media/{file_path:path}")
     async def proxy_media(file_path: str):
-        for host in ["http://localhost:8001", "http://127.0.0.1:8001", "http://host.docker.internal:8001"]:
+        for host in [
+            "http://localhost:8989", "http://127.0.0.1:8989", "http://host.docker.internal:8989",
+            "http://localhost:8001", "http://127.0.0.1:8001", "http://host.docker.internal:8001",
+        ]:
             try:
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     resp = await client.get(f"{host}/media/{file_path}")
@@ -86,7 +89,7 @@ if not media_mounted:
                         return Response(content=resp.content, media_type=content_type)
             except Exception:
                 continue
-        return Response(status_code=404)
+        return Response(status_code=404, content="Image not found", media_type="text/plain")
 
 
 # Пример маршрута для проверки
