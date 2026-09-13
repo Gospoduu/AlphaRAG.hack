@@ -1639,22 +1639,75 @@
       return null;
     }
 
-    // Markdown Parser with fallback & clickable images
+    // Enhanced Markdown Parser with Citations block & Image Gallery
     function renderMarkdown(rawText) {
       if (!rawText) return '';
+      let text = String(rawText);
+      const images = [];
+      const citations = [];
+
+      // 1. Extract markdown images: ![alt](url)
+      text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^\s\)]+|\/[^\s\)]+)\)/g, (match, alt, url) => {
+        const cleanUrl = url.trim();
+        if (cleanUrl && !images.includes(cleanUrl)) images.push(cleanUrl);
+        return '';
+      });
+
+      // 2. Remove standard illustrations header if present
+      text = text.replace(/\*\*Иллюстрации к инструкции:\*\*\s*/gi, '');
+
+      // 3. Extract knowledge base citations:
+      // Pattern A: **Источники из базы знаний:** or **Официальные источники:** followed by - [Title](URL)
+      const kbBlockMatch = text.match(/\*\*(?:Источники из базы знаний|Официальные источники):\*\*\s*([\s\S]*?)(?=(?:\n\s*\n\s*\*\*|$))/i);
+      if (kbBlockMatch) {
+        const blockContent = kbBlockMatch[1];
+        const linkRegex = /-\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g;
+        let lm;
+        while ((lm = linkRegex.exec(blockContent)) !== null) {
+          const title = lm[1].trim();
+          const url = lm[2].trim();
+          if (!citations.some(c => c.url === url)) {
+            citations.push({ title, url });
+          }
+        }
+        text = text.replace(kbBlockMatch[0], '');
+      }
+
+      // Pattern B: 📖 **Источник:** [Title](URL) or 📖 Источник: [Title](URL)
+      const sourceRegex = /(?:📖\s*)?(?:\*\*)?Источник:(?:\*\*)?\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi;
+      let sm;
+      while ((sm = sourceRegex.exec(text)) !== null) {
+        const title = sm[1].trim();
+        const url = sm[2].trim();
+        if (!citations.some(c => c.url === url)) {
+          citations.unshift({ title, url });
+        }
+      }
+
+      // Pattern C: Any remaining bullet links to official portals at the end of text
+      const bulletLinkRegex = /(?:^|\n)-\s*\[([^\]]+)\]\((https?:\/\/(?:zakupki\.mos\.ru|zakupki\.gov\.ru)[^\)]*)\)/g;
+      let blm;
+      while ((blm = bulletLinkRegex.exec(text)) !== null) {
+        const title = blm[1].trim();
+        const url = blm[2].trim();
+        if (!citations.some(c => c.url === url)) {
+          citations.push({ title, url });
+        }
+      }
+
+      // 4. Parse main text with marked.parse
       let rendered = '';
       try {
         if (window.marked && typeof marked.parse === 'function') {
-          const html = marked.parse(rawText, { gfm: true, breaks: true });
+          const html = marked.parse(text.trim(), { gfm: true, breaks: true });
           rendered = window.DOMPurify ? DOMPurify.sanitize(html) : html;
         }
       } catch (e) {
         console.warn('Marked parse error, using fallback:', e);
       }
+
       if (!rendered) {
-        // Simple offline fallback
-        let escaped = escapeHtml(rawText);
-        escaped = escaped.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" onclick="openImgModal(this.src)" />');
+        let escaped = escapeHtml(text.trim());
         escaped = escaped.replace(/(?<!!)\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
         escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         escaped = escaped.replace(/\*(.*?)\*/g, '<em>$1</em>');
@@ -1662,6 +1715,31 @@
         escaped = escaped.replace(/\n/g, '<br/>');
         rendered = escaped;
       }
+
+      // 5. Append Image Preview Gallery (Horizontal thumbnails from MAESTRO)
+      if (images.length > 0) {
+        let imagesHtml = '<div class="image-preview-group">';
+        images.slice(0, 4).forEach(imgUrl => {
+          imagesHtml += `<img class="img-thumb" src="${escapeHtml(imgUrl)}" onclick="openImgModal('${escapeHtml(imgUrl)}')" onerror="this.style.display='none'" title="Нажмите для увеличения"/>`;
+        });
+        imagesHtml += '</div>';
+        rendered += imagesHtml;
+      }
+
+      // 6. Append Citations Container (Cards with links from MAESTRO)
+      if (citations.length > 0) {
+        let citationsHtml = '<div class="citations-container"><b>📚 Официальные источники:</b>';
+        citations.forEach(c => {
+          citationsHtml += `
+            <a class="citation-card" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer">
+              🔗 <span>${escapeHtml(c.title)}</span>
+            </a>
+          `;
+        });
+        citationsHtml += '</div>';
+        rendered += citationsHtml;
+      }
+
       return rendered;
     }
 
@@ -1687,13 +1765,23 @@
     // Identify Support Line by query or message (L1, L2, L3)
     function detectSupportLine(text) {
       const t = (text || '').toLowerCase();
-      if (t.includes('сертификат') || t.includes('криптопро') || t.includes('эцп') || t.includes('плагин') || t.includes('браузер') || t.includes('ошибка 403') || t.includes('вход в лк')) {
+      // Навигация, общие вопросы, жалобы, ФАС, регламенты, закупки, законы — это L1
+      if (t.includes('жалоб') || t.includes('фас') || t.includes('44-фз') || t.includes('223-фз') || 
+          t.includes('змо') || t.includes('оферт') || t.includes('котировочн') || t.includes('регистрац') || 
+          t.includes('еруз') || t.includes('закупк') || t.includes('порядок') || t.includes('как подать') || 
+          t.includes('как зарегистрироваться') || t.includes('каталог') || t.includes('поиск')) {
+        return { code: 'L1', name: 'L1 • Линия общей поддержки и навигации по Порталу Поставщиков', color: 'var(--l1-color)' };
+      }
+      // Ошибки софта, плагинов, КриптоПро, сбои подписания — L2
+      if (t.includes('ошибка') || t.includes('не подписывает') || t.includes('не работает') || 
+          t.includes('сбой') || t.includes('криптопро') || t.includes('плагин') || t.includes('не видит сертификат')) {
         return { code: 'L2', name: 'L2 • Техподдержка (ЭЦП / ПО)', color: 'var(--l2-color)' };
       }
+      // Системные инциденты, интеграции, API — L3
       if (t.includes('500 internal') || t.includes('база данных') || t.includes('сбой еис') || t.includes('инцидент') || t.includes('api') || t.includes('интеграция')) {
         return { code: 'L3', name: 'L3 • Инженеры ЕИС (Системный инцидент)', color: 'var(--l3-color)' };
       }
-      return { code: 'L1', name: 'L1 • ИИ-консультант (Регламент / БЗ)', color: 'var(--l1-color)' };
+      return { code: 'L1', name: 'L1 • Линия общей поддержки и навигации по Порталу Поставщиков', color: 'var(--l1-color)' };
     }
 
     // Check for lack of knowledge in response
@@ -2088,7 +2176,9 @@
         row.dataset.chatId = cid;
 
         const currentText = getGenText(cid);
-        const line = detectSupportLine(currentText || '');
+        const lastUser = container ? Array.from(container.querySelectorAll('.message-row.user')).pop() : null;
+        const userQuery = lastUser ? (lastUser.querySelector('.bubble-content')?.textContent || '') : '';
+        const line = detectSupportLine(userQuery || currentText || '');
 
         row.innerHTML = `
           <div class="message-avatar">🤖</div>
@@ -2602,11 +2692,16 @@
       if (opts.id != null) row.dataset.messageId = String(opts.id);
 
       const isUser = opts.role === 'user';
-      const line = detectSupportLine(opts.text);
+      let userQuery = '';
+      if (!isUser) {
+        const lastUser = Array.from(container.querySelectorAll('.message-row.user')).pop();
+        if (lastUser) userQuery = lastUser.querySelector('.bubble-content')?.textContent || '';
+      }
+      const line = detectSupportLine(userQuery || opts.text);
 
       let lineBadgeHtml = '';
       if (!isUser) {
-        lineBadgeHtml = `<span class="line-badge l1" style="font-size:10px; padding:2px 6px;">${line.name}</span>`;
+        lineBadgeHtml = `<span class="line-badge ${line.code.toLowerCase()}" style="font-size:10px; padding:2px 6px;">${line.name}</span>`;
       }
 
       let escalationHtml = '';
