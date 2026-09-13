@@ -22,4 +22,6 @@ class PongBase(BaseModel):
 
 class PatchReaction(BaseModel):
     message_id: int
+    chat_id: int
+    user_uuid: UUID
     reaction: MessageReaction

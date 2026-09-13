@@ -1,8 +1,12 @@
-from Back.modules.chat.models import Message
-from Back.utils.redis import to_serializable
-from redis.asyncio import Redis
 from enum import Enum
 import json
+
+from redis.asyncio import Redis
+
+from Back.modules.chat.models import Message
+from Back.utils.redis import to_serializable
+
+
 
 class GenerationStatus(str, Enum):
     IN_PROGRESS = "in_progress"
@@ -19,6 +23,34 @@ def __get_chat_status_key(chat_id: int):
 def __get_generator_key(chat_id: int):
     key = f"chat:{chat_id}:generated_text"
     return key
+def __get_chat_dislike_status_key(chat_id: int):
+    key = f"chat:{chat_id}:dislike:status"
+    return key
+
+def __dislike_timer_key(chat_id: int):
+    key = f"chat:{chat_id}:dislike:timer"
+    return key
+
+async def set_dislike_timer(chat_id: int, redis: Redis):
+    key = __dislike_timer_key(chat_id)
+    await redis.set(key, True)
+    await redis.expire(key, 5)
+
+async def get_dislike_timer(chat_id: int, redis: Redis):
+    key = __dislike_timer_key(chat_id)
+    return await redis.get(key)
+
+
+async def set_dislike_status(chat_id: int, redis: Redis):
+    key = __get_chat_dislike_status_key(chat_id)
+    await redis.set(key, True)
+    await redis.expire(key, 60 * 8)
+async def get_dislike_status(chat_id: int, redis: Redis):
+    key = __get_chat_dislike_status_key(chat_id)
+    return await redis.get(key)
+async def delete_dislike_status(chat_id: int, redis: Redis):
+    key = __get_chat_dislike_status_key(chat_id)
+    await redis.delete(key)
 
 
 async def add_generated_token(token: str, chat_id: int, redis: Redis):
