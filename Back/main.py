@@ -56,6 +56,19 @@ for event_name in event_manager.list_events():
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+for _cand in [
+    BASE_DIR.parent / "dataset" / "media",
+    BASE_DIR.parent / "dataset" / "knowledgebase_mos_ru" / "media",
+    Path("/app/dataset/media"),
+    Path("/app/dataset/knowledgebase_mos_ru/media"),
+    Path("/Users/todaisy/rlt_project/dataset/media"),
+    Path("/Users/todaisy/rlt_project/dataset/knowledgebase_mos_ru/media"),
+]:
+    if _cand.exists():
+        app.mount("/media", StaticFiles(directory=_cand), name="media")
+        logger.info(f"Mounted /media from {_cand}")
+        break
+
 
 # Пример маршрута для проверки
 @app.get("/")

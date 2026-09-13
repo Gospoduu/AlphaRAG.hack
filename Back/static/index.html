@@ -1720,7 +1720,8 @@
       if (images.length > 0) {
         let imagesHtml = '<div class="image-preview-group">';
         images.slice(0, 4).forEach(imgUrl => {
-          imagesHtml += `<img class="img-thumb" src="${escapeHtml(imgUrl)}" onclick="openImgModal('${escapeHtml(imgUrl)}')" onerror="this.style.display='none'" title="Нажмите для увеличения"/>`;
+          const safeUrl = escapeHtml(imgUrl);
+          imagesHtml += `<img class="img-thumb" src="${safeUrl}" onclick="openImgModal(this.src)" onerror="if(!this.dataset.retried){this.dataset.retried='1';this.src='http://'+window.location.hostname+':8001'+'${safeUrl}';}else{this.style.display='none';}" title="Нажмите для увеличения"/>`;
         });
         imagesHtml += '</div>';
         rendered += imagesHtml;
