@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
+from Back.infra.metrics import HttpMetricsMiddleware, router as metrics_router, ws_commands
 from Back.modules.chat.crud import ping_db
 from Back.infra.db.start_db import init_db
 from Back.infra.db.db import get_db
@@ -41,6 +42,14 @@ async def lifespan(app: FastAPI):
         await broker.stop()
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(HttpMetricsMiddleware)
+app.include_router(metrics_router)
+# Initialize registered event series before the first scrape.
+from Back.core.events_bus.event_manager import event_manager
+for event_name in event_manager.list_events():
+    if event_name != 'PING':
+        ws_commands.labels(event_name)
+
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

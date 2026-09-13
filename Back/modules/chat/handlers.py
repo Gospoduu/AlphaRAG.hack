@@ -55,6 +55,8 @@ async def message_handler(
         redis: Redis,
         db: AsyncSession)-> None:
     try:
+        from .operator_offers import cancel_operator_offer
+        await cancel_operator_offer(new_message.data.chat_id, redis)
         updated_local_id = await crud.get_last_message_local_id(db=db, chat_id=new_message.data.chat_id) or 0
         updated_local_id+=1
         message_model = await crud.create_message(

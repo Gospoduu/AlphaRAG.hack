@@ -1977,6 +1977,10 @@
       const cid = normalizeChatId(rawChatId || currentChatId);
       if (!cid) return;
 
+      if (message.meta?.is_user_need_support || data.is_user_need_support || message.is_user_need_support || message.meta?.ask_about_support || data.details === 'is_user_need_support') {
+        handleOperatorOffer(message, cid);
+        return;
+      }
       if (endReceivedForChat[cid]) return;
       endReceivedForChat[cid] = true;
 
@@ -2022,7 +2026,7 @@
           if (!bubbleEl.querySelector('.message-actions')) {
             const act = document.createElement('div');
             act.className = 'message-actions';
-            act.innerHTML = reactionButtons(message.meta?.message_id ?? data.message_id, 0);
+            act.innerHTML = reactionButtons(message.meta?.message_id ?? data.message_id, 0, cid);
             bubbleEl.querySelector('.message-body').appendChild(act);
           }
         }
@@ -2373,6 +2377,7 @@
           return;
         }
 
+        syncOperatorOffersWithHistory(cid, msgs);
         msgs.forEach(msg => {
           const isUser = (msg.user_role || 'user').toLowerCase() === 'user';
           appendRenderedMessage({
@@ -2380,6 +2385,7 @@
             text: msg.text,
             num: msg.local_id,
             id: msg.id,
+            chatId,
             reaction: msg.reaction,
             time: msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''
           });
@@ -2467,6 +2473,9 @@
         }
       }));
 
+      dismissOperatorOffers(currentChatId);
+      localStorage.setItem('alpha_last_user_send_' + userUuid + '_' + normalizeChatId(currentChatId), new Date().toISOString());
+
       // Remember the source of the API-triggered escalation, even if the user
       // changes the visible bot chat before SUPPORT_RESPONSE arrives.
       if (/(^|\s)оператор[.!?,…]*($|\s)/i.test(text)) {
@@ -2531,6 +2540,7 @@
 
       const row = document.createElement('div');
       row.className = `message-row ${opts.role}`;
+      if (opts.id != null) row.dataset.messageId = String(opts.id);
 
       const isUser = opts.role === 'user';
       const line = detectSupportLine(opts.text);
@@ -2554,7 +2564,7 @@
 
       let actionsHtml = '';
       if (!isUser) {
-        actionsHtml = `<div class="message-actions">${reactionButtons(opts.id, opts.reaction)}</div>`;
+        actionsHtml = `<div class="message-actions">${reactionButtons(opts.id, opts.reaction, opts.chatId ?? currentChatId)}</div>`;
       }
 
       row.innerHTML = `
@@ -2579,7 +2589,9 @@
       });
 
       container.appendChild(row);
+      attachOperatorOffer(row, opts.chatId ?? currentChatId, opts.id);
       scrollToBottom();
+      return row;
     }
 
     function appendProfanityAlert() {
@@ -2632,10 +2644,114 @@
     }
 
     // ---------------- ESCALATION & FEEDBACK ----------------
-    function reactionButtons(messageId, reaction = 0) {
+    function operatorOffers() {
+      return safeParseLS('alpha_operator_offers_' + userUuid, {});
+    }
+
+    function saveOperatorOffers(offers) {
+      setLSObj('alpha_operator_offers_' + userUuid, offers);
+    }
+
+    function handleOperatorOffer(message, chatId) {
+      const data = message.data || {};
+      const id = message.meta?.message_id ?? data.message_id ?? data.id;
+      if (id == null) return;
+      const offers = operatorOffers();
+      const key = String(id);
+      if (offers[key]) return; // Duplicate END_GENERATION delivery.
+      const sentAt = localStorage.getItem('alpha_last_user_send_' + userUuid + '_' + chatId);
+      const requestedAt = message.meta?.offer_requested_at;
+      offers[key] = {id, chatId, text: message.meta?.user_query || '',
+        status: sentAt && requestedAt && new Date(sentAt) > new Date(requestedAt) ? 'declined' : 'pending'};
+      saveOperatorOffers(offers);
+      if (!isSameChat(chatId, currentChatId)) return;
+      const existing = Array.from(document.querySelectorAll('#messageContainer .message-row')).find(row => row.dataset.messageId === key);
+      const streamRow = !requestedAt ? getStreamBubble(chatId) : null;
+      if (streamRow && !existing) {
+        streamRow.dataset.messageId = key;
+        const bubble = streamRow.querySelector('.bubble');
+        bubble.classList.remove('streaming');
+        bubble.querySelector('.typing-cursor')?.remove();
+        streamRow.querySelector('.streaming-tag')?.remove();
+        const content = streamRow.querySelector('.bubble-content');
+        content.innerHTML = renderMarkdown(data.all_text || data.text || '');
+        content.style.whiteSpace = '';
+        clearGen(chatId);
+        if (chatStreams[chatId]) chatStreams[chatId].active = false;
+        endReceivedForChat[chatId] = true;
+        delete activeStreamBubbles[chatId];
+        refreshChatListIndicators();
+        attachOperatorOffer(streamRow, chatId, id);
+      } else if (existing) attachOperatorOffer(existing, chatId, id);
+      else appendRenderedMessage({role:'bot', id, chatId, text:data.all_text || data.text || '', reaction:0});
+    }
+
+    function attachOperatorOffer(row, chatId, messageId) {
+      if (messageId == null || row.querySelector('.operator-offer')) return;
+      const offer = operatorOffers()[String(messageId)];
+      if (!offer || offer.status !== 'pending' || !isSameChat(offer.chatId, chatId)) return;
+      const box = document.createElement('div');
+      box.className = 'operator-offer escalation-box';
+      box.dataset.offerId = String(messageId);
+      box.innerHTML = '<span>Обратиться к оператору?</span><button class="btn-action-sm" data-answer="yes">Да</button><button class="btn-action-sm" data-answer="no">Нет</button><span role="status"></span>';
+      box.querySelector('[data-answer="yes"]').onclick = () => answerOperatorOffer(messageId, true, box);
+      box.querySelector('[data-answer="no"]').onclick = () => answerOperatorOffer(messageId, false, box);
+      row.querySelector('.message-body').appendChild(box);
+    }
+
+    function answerOperatorOffer(messageId, accepted, box) {
+      const offers = operatorOffers();
+      const offer = offers[String(messageId)];
+      if (!offer || offer.status !== 'pending') return;
+      if (accepted) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          box.querySelector('[role="status"]').textContent = 'Нет соединения. Повторите попытку.';
+          return;
+        }
+        const question = isSameChat(offer.chatId, currentChatId)
+          ? Array.from(document.querySelectorAll('#messageContainer .message-row.user .bubble-content')).pop()?.textContent : '';
+        try {
+          socket.send(JSON.stringify({event:'SUPPORT_REQUEST', status:'OK', data:{
+            user_uuid:userUuid, chat_id:Number(offer.chatId), text:(offer.text || question || 'Нужна помощь оператора по моему обращению.').slice(0, 1000)
+          }}));
+        } catch (error) {
+          box.querySelector('[role="status"]').textContent = 'Не удалось отправить запрос. Повторите попытку.';
+          return;
+        }
+        const key = 'alpha_support_pending_sources_' + userUuid;
+        const pending = safeParseLS(key, []);
+        pending.push(offer.chatId);
+        setLSObj(key, pending);
+      }
+      offer.status = accepted ? 'accepted' : 'declined';
+      saveOperatorOffers(offers);
+      if (accepted) dismissOperatorOffers(offer.chatId);
+      box.remove();
+    }
+
+    function dismissOperatorOffers(chatId) {
+      const offers = operatorOffers();
+      Object.values(offers).forEach(offer => {
+        if (isSameChat(offer.chatId, chatId) && offer.status === 'pending') offer.status = 'declined';
+      });
+      saveOperatorOffers(offers);
+      if (isSameChat(chatId, currentChatId)) document.querySelectorAll('#messageContainer .operator-offer').forEach(box => box.remove());
+    }
+
+    function syncOperatorOffersWithHistory(chatId, messages) {
+      const offers = operatorOffers();
+      Object.values(offers).forEach(offer => {
+        if (!isSameChat(offer.chatId, chatId) || offer.status !== 'pending') return;
+        const index = messages.findIndex(message => String(message.id) === String(offer.id));
+        if (index !== -1 && messages.slice(index + 1).some(message => String(message.user_role).toLowerCase() === 'user')) offer.status = 'declined';
+      });
+      saveOperatorOffers(offers);
+    }
+
+    function reactionButtons(messageId, reaction = 0, chatId = currentChatId) {
       const id = Number(messageId);
       const ready = Number.isSafeInteger(id) && id > 0;
-      return [1, -1].map(value => `<button class="btn-fb ${Number(reaction) === value ? value === 1 ? 'active-like' : 'active-dislike' : ''}" data-message-id="${ready ? id : ''}" data-reaction="${value}" aria-pressed="${Number(reaction) === value}" ${ready ? '' : 'disabled title="Обновите историю, чтобы оценить сохранённый ответ"'} onclick="toggleFb(this)">${value === 1 ? '👍 Полезно' : '👎 Не помогло'}</button>`).join('') +
+      return [1, -1].map(value => `<button class="btn-fb ${Number(reaction) === value ? value === 1 ? 'active-like' : 'active-dislike' : ''}" data-message-id="${ready ? id : ''}" data-chat-id="${escapeHtml(chatId)}" data-reaction="${value}" aria-pressed="${Number(reaction) === value}" ${ready ? '' : 'disabled title="Обновите историю, чтобы оценить сохранённый ответ"'} onclick="toggleFb(this)">${value === 1 ? '👍 Полезно' : '👎 Не помогло'}</button>`).join('') +
         '<button class="btn-fb" onclick="copyText(this)">📋 Копировать</button><span class="reaction-notice" role="status"></span>';
     }
 
@@ -2653,7 +2769,7 @@
       try {
         const response = await fetch(`${getApiBase()}/api/chat/reaction`, {
           method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message_id: messageId, reaction})
+          body: JSON.stringify({message_id: messageId, chat_id: Number(btn.dataset.chatId), user_uuid: userUuid, reaction})
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
@@ -2666,7 +2782,7 @@
         });
         notice.textContent = '';
       } catch (error) {
-        notice.textContent = '';
+        notice.textContent = 'Не удалось сохранить реакцию. Попробуйте ещё раз.';
       } finally {
         parent.dataset.saving = 'false';
         buttons.forEach(button => {button.disabled = false;});

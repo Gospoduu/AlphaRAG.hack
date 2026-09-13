@@ -21,6 +21,14 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 
+class CooldownRedis:
+    async def get(self, key):
+        return '1'
+
+    async def eval(self, *args):
+        return 0
+
+
 async def main(database_url=None):
     test_base = create_async_engine(database_url) if database_url else engine
     test_base.echo = False
@@ -48,7 +56,7 @@ async def main(database_url=None):
             message_id, chat_id = message.id, chat.id
         for reaction in (1, -1, 0):
             async with sessions() as db:
-                result = await reaction_endpoint(PatchReaction(message_id=message_id, reaction=reaction), db)
+                result = await reaction_endpoint(PatchReaction(message_id=message_id, chat_id=chat_id, user_uuid=user.uuid, reaction=reaction), db, CooldownRedis())
                 assert result['status'] == 'ok'
             # A separate session must see the committed value, not just a flush.
             async with sessions() as reader:
@@ -58,13 +66,13 @@ async def main(database_url=None):
                 assert history['messages'][0]['reaction'] == reaction
         async with sessions() as db:
             try:
-                await reaction_endpoint(PatchReaction(message_id=2147483647, reaction=1), db)
+                await reaction_endpoint(PatchReaction(message_id=2147483647, chat_id=chat_id, user_uuid=user.uuid, reaction=1), db, CooldownRedis())
             except HTTPException as error:
                 assert error.status_code == 404
             else:
                 raise AssertionError('Missing message accepted')
         try:
-            PatchReaction(message_id=message_id, reaction=2)
+            PatchReaction(message_id=message_id, chat_id=chat_id, user_uuid=user.uuid, reaction=2)
         except ValidationError:
             pass
         else:

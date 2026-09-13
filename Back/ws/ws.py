@@ -7,6 +7,7 @@ from typing import AsyncGenerator, Callable, Optional
 from fastapi.params import Depends
 from redis.asyncio import Redis
 from Back.ws.managers import manager
+from Back.infra.metrics import ws_commands
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from Back.core.events_bus.dispatcher import dispatcher_manager
 
@@ -66,6 +67,8 @@ async def ws_to_redis_loop(websocket:WebSocket, user_uuid: UUID, conn_id: int, r
             # In production, catch ValidationError explicitly and return structured errors.
             logger.info(f"Received event: {event_type}")
             await add_new_cmd(user_uuid, event, r)
+            if event.event != 'PING':
+                ws_commands.labels(event.event).inc()
 
         except ValidationError as e:
             error_flag = True

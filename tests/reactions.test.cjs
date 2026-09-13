@@ -7,11 +7,11 @@ const code = html.slice(html.indexOf('    function reactionButtons('), html.inde
 const notice = {textContent: ''};
 const parent = {dataset: {}, querySelector: () => notice, querySelectorAll: () => buttons};
 const buttons = ['1', '-1'].map(value => ({
-  dataset: {messageId:'123', reaction:value}, parentElement: parent, pressed:'false',
+  dataset: {messageId:'123', chatId:'7', reaction:value}, parentElement: parent, pressed:'false',
   getAttribute() {return this.pressed;}, setAttribute(_,value) {this.pressed=value;},
   classList: {toggle() {}}
 }));
-const context = vm.createContext({getApiBase:()=> 'http://localhost:8000'});
+const context = vm.createContext({getApiBase:()=> 'http://localhost:8000', currentChatId:7, userUuid:'user-a', escapeHtml:String});
 vm.runInContext(code, context);
 assert.match(context.reactionButtons(123, 1), /active-like/);
 assert.match(context.reactionButtons(123, -1), /active-dislike/);
@@ -38,7 +38,7 @@ assert.match(context.reactionButtons(undefined), /disabled/);
   await context.toggleFb(buttons[1]);
   assert.equal(buttons[1].pressed, 'false');
   assert.deepEqual(requests, [
-    {message_id:123, reaction:1}, {message_id:123, reaction:-1}, {message_id:123, reaction:0}
+    {message_id:123, chat_id:7, user_uuid:'user-a', reaction:1}, {message_id:123, chat_id:7, user_uuid:'user-a', reaction:-1}, {message_id:123, chat_id:7, user_uuid:'user-a', reaction:0}
   ]);
   context.fetch = async () => ({ok:false, status:500});
   await context.toggleFb(buttons[0]);
