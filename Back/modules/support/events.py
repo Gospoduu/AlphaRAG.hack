@@ -18,10 +18,12 @@ from Back.constants import (
 
 class SupportRequestData(EventDataBase):
     user_uuid: UUID
+    chat_id: int | None = None
     text: str = Field(min_length=1, max_length=1000)
 
 class SupportResponseData(EventDataBase):
     user_uuid: UUID
+    chat_id: int | None = None
     support_dialog_id: UUID
 
 class SupportMessageData(EventDataBase):

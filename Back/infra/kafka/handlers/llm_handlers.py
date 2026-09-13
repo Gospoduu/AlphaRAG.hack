@@ -44,7 +44,7 @@ async def end_generation_handler(
     try:
         updated_local_id = await crud.get_last_message_local_id(db=db, chat_id=event.data.chat_id) or 0
         updated_local_id += 1
-        await crud.create_message(
+        saved_message = await crud.create_message(
             db=db,
             chat_id=event.data.chat_id,
             text=event.data.all_text,
@@ -54,6 +54,7 @@ async def end_generation_handler(
             user_role=Role.BOT,
         )
         await db.commit()
+        event.meta["message_id"] = saved_message.id
         await add_new_emit(redis=redis, event=event, user_uuid=event.data.user_uuid)
         if event.meta.get("need_to_call_support") and event.meta.get("user_query"):
             await ask_support_handler(

@@ -508,6 +508,35 @@
       font-weight: 700;
     }
 
+    .chat-list { min-height: 80px; }
+    .support-section { border-top: 1px solid var(--border); flex-shrink: 0; background: #fafafa; }
+    .support-section summary { padding: 16px; cursor: pointer; font-size: 14px; font-weight: 700; }
+    .support-section summary::marker { color: var(--primary); }
+    .support-section .chat-list { max-height: 30vh; min-height: 0; }
+    .support-section .chat-item { width: 100%; text-align: left; background: transparent; font: inherit; }
+    .support-section .chat-item.active { background: var(--primary-soft); }
+    .support-notice { padding: 10px 16px; font-size: 12px; color: var(--text-muted); }
+    .support-notice:empty { display: none; }
+    .support-toolbar { padding: 0 12px 12px; display: flex; gap: 8px; }
+    .support-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .message-row.initial-request { align-self: center; text-align: center; }
+    .message-row.initial-request .message-meta { justify-content: center; }
+    .message-row.initial-request .bubble { background: #fef3c7; border-color: #fcd34d; color: #78350f; }
+    #supportView .chat-header-info { min-width: 0; flex-wrap: wrap; }
+    #supportTitle { overflow-wrap: anywhere; }
+    #supportFeedback { padding: 16px 24px; border-top: 1px solid var(--border); }
+    #supportFeedback form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    #supportFeedback input { flex: 1; min-width: 120px; }
+    #supportFeedback select, #supportFeedback input { padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
+    .support-history-control { display: flex; justify-content: center; }
+    .support-bot-history { display: flex; flex-direction: column; gap: 16px; padding: 16px; border: 1px dashed var(--border); border-radius: 12px; background: #f1f5f9; }
+    .support-bot-history.hidden { display: none; }
+    .support-history-chat { display: flex; flex-direction: column; gap: 12px; }
+    .support-history-chat h3 { font-size: 13px; color: var(--text-muted); }
+    .support-typing .bubble { color: var(--text-muted); }
+    @media (prefers-reduced-motion: reduce) { .support-typing .typing-cursor { animation: none; } }
+    .btn-chat-navigation { display: none; }
+
     /* Main Chat View */
     main.chat-view {
       display: flex;
@@ -1226,12 +1255,18 @@
 
     /* Responsive adjustments */
     @media (max-width: 900px) {
+      .btn-chat-navigation { display: block; }
       .app-container {
         grid-template-columns: 1fr;
       }
       aside.sidebar {
         display: none;
       }
+      aside.sidebar.mobile-open {
+        display: flex; position: absolute; top: 0; bottom: 0; left: 0;
+        width: min(320px, 90vw); z-index: 15; box-shadow: var(--shadow-lg);
+      }
+      .app-container { position: relative; }
     }
   </style>
 </head>
@@ -1251,6 +1286,7 @@
     </div>
 
     <div class="nav-controls">
+      <button class="btn-nav btn-chat-navigation" aria-controls="chatSidebar" aria-expanded="false" onclick="toggleChatSidebar(this)">Диалоги</button>
       <div id="wsStatusPill" class="status-pill offline">
         <div class="status-dot"></div>
         <span id="wsStatusText">WebSocket: Подключение...</span>
@@ -1296,7 +1332,7 @@
   <div id="app" class="app-container hidden">
     
     <!-- Sidebar -->
-    <aside class="sidebar">
+    <aside id="chatSidebar" class="sidebar">
       <div class="sidebar-header">
         <button class="btn-new-chat" onclick="createChat()">
           <span>+</span> Новый диалог
@@ -1308,33 +1344,24 @@
         </div>
       </div>
 
+      <div class="support-notice">💬 Чаты с ботом</div>
       <!-- Chat list -->
       <ul id="chatList" class="chat-list">
         <!-- Rendered dynamically -->
       </ul>
 
-      <!-- Support Line Legend & User Info -->
-      <div class="sidebar-footer">
-        <div class="lines-legend">
-          <div class="lines-legend-title">Маршрутизация обращений:</div>
-          <div class="legend-item">
-            <span class="legend-badge" style="background: var(--l1-color)">L1</span>
-            <span>ИИ-консультант (Регламент, оферты)</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-badge" style="background: var(--l2-color)">L2</span>
-            <span>Техподдержка (КриптоПро, ЭЦП)</span>
-          </div>
-          <div class="legend-item">
-            <span class="legend-badge" style="background: var(--l3-color)">L3</span>
-            <span>Инженеры ЕИС (Системные сбои)</span>
-          </div>
+      <details id="supportSection" class="support-section" open>
+        <summary>🎧 Чаты с оператором <span id="supportCount">0</span></summary>
+        <div id="supportListNotice" class="support-notice" role="status">Загрузка обращений...</div>
+        <ul id="supportChatList" class="chat-list"></ul>
+        <div class="support-toolbar">
+          <button class="btn-action-sm" onclick="fetchSupportDialogs()" aria-label="Обновить обращения">↻</button>
         </div>
-      </div>
+      </details>
     </aside>
 
     <!-- Main Chat View -->
-    <main class="chat-view">
+    <main id="botView" class="chat-view">
       <!-- Chat Header -->
       <div class="chat-header">
         <div class="chat-header-info">
@@ -1343,9 +1370,6 @@
         </div>
 
         <div class="chat-header-actions">
-          <button class="btn-action-sm" onclick="escalateToOperator()" title="Передать диалог специалисту">
-            <span>🎧</span> Вызвать оператора
-          </button>
           <button class="btn-action-sm" onclick="openEvalModal()" title="Оценить качество работы">
             <span>⭐</span> Оценить решение
           </button>
@@ -1386,6 +1410,26 @@
           <span>💡 Система распознает опечатки и автоматически адресует запрос на нужную линию поддержки (L1/L2/L3)</span>
           <span id="charCountHint">Символов: 0/1000</span>
         </div>
+      </div>
+    </main>
+    <main id="supportView" class="chat-view hidden" aria-label="Чат с оператором">
+      <div class="chat-header">
+        <div class="chat-header-info">
+          <div><div id="supportTitle" class="chat-header-title">Обращение к оператору</div>
+            <div id="supportOperator" class="chat-item-sub"></div></div>
+          <span id="supportLine" class="line-badge"></span>
+          <span id="supportStatus" class="chat-item-sub"></span>
+        </div>
+        <button id="supportEnd" class="btn-action-sm danger" onclick="endSupportDialog()">Завершить диалог</button>
+      </div>
+      <div id="supportNotice" class="support-notice" role="status"></div>
+      <div id="supportMessages" class="message-container"></div>
+      <div id="supportFeedback" class="hidden"></div>
+      <div id="supportComposer" class="composer-area">
+        <form class="composer-form" onsubmit="sendSupportMessage(event)">
+          <input id="supportInput" class="composer-input" maxlength="1000" autocomplete="off" placeholder="Написать оператору…" aria-label="Сообщение оператору" oninput="saveSupportDraft()" />
+          <button class="composer-btn-send" type="submit">Отправить ➤</button>
+        </form>
       </div>
     </main>
   </div>
@@ -1717,6 +1761,7 @@
         const data = await response.json();
 
         if (data.status === 'ok') {
+          if (userUuid !== data.uuid) resetSupportState();
           userUuid = data.uuid;
           userRole = data.role || role;
           localStorage.setItem(LS_USER_KEY, userUuid);
@@ -1770,6 +1815,9 @@
         const alertBox = document.getElementById('serverOfflineAlert');
         if (alertBox) alertBox.style.display = 'none';
         startHeartbeat();
+        fetchSupportDialogs().then(() => {
+          if (activeChatKind === 'support' && currentSupportId) selectSupportDialog(currentSupportId);
+        });
 
         if (currentChatId) renderStreamIfNeeded(currentChatId);
         refreshChatListIndicators();
@@ -1788,6 +1836,7 @@
           }
 
           const data = message.data || message.payload || message || {};
+          if (handleSupportEvent(ev, data)) return;
 
           if (
             ev === 'new_token' ||
@@ -1964,7 +2013,7 @@
               <div class="escalation-text">
                 <b>База знаний:</b> Не найдена точная инструкция по вашему запросу. Перевести на оператора?
               </div>
-              <button class="btn-escalate" onclick="escalateToOperator()">🎧 Вызвать оператора</button>
+              <span class="escalation-text">Напишите «оператор» в чат, чтобы обратиться к специалисту.</span>
             `;
             bubble.appendChild(esc);
           }
@@ -1973,11 +2022,7 @@
           if (!bubbleEl.querySelector('.message-actions')) {
             const act = document.createElement('div');
             act.className = 'message-actions';
-            act.innerHTML = `
-              <button class="btn-fb" onclick="toggleFb(this, 'like')">👍 Полезно</button>
-              <button class="btn-fb" onclick="toggleFb(this, 'dislike')">👎 Не помогло</button>
-              <button class="btn-fb" onclick="copyText(this)">📋 Копировать</button>
-            `;
+            act.innerHTML = reactionButtons(message.meta?.message_id ?? data.message_id, 0);
             bubbleEl.querySelector('.message-body').appendChild(act);
           }
         }
@@ -2121,7 +2166,7 @@
       chats.forEach(chat => {
         const li = document.createElement('li');
         const streaming = isChatStreaming(chat.id);
-        const isActive = isSameChat(chat.id, currentChatId);
+        const isActive = activeChatKind === 'bot' && isSameChat(chat.id, currentChatId);
         li.className = `chat-item ${isActive ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
         li.dataset.chatId = String(chat.id);
         li.onclick = (e) => {
@@ -2180,7 +2225,7 @@
 
     function filterChatList() {
       const query = document.getElementById('chatSearch').value.toLowerCase();
-      const items = document.querySelectorAll('.chat-item');
+      const items = document.querySelectorAll('#chatList .chat-item');
       items.forEach(item => {
         const title = item.querySelector('.chat-item-title')?.textContent.toLowerCase() || '';
         item.style.display = title.includes(query) ? 'flex' : 'none';
@@ -2188,6 +2233,7 @@
     }
 
     async function selectChat(chatId) {
+      showBotView();
       if (isSameChat(currentChatId, chatId)) return;
       currentChatId = chatId;
       setCurrentChatId(chatId);
@@ -2210,6 +2256,7 @@
     }
 
     async function createChat() {
+      showBotView();
       const btn = document.querySelector('.btn-new-chat');
       if (btn) btn.disabled = true;
 
@@ -2332,6 +2379,8 @@
             role: isUser ? 'user' : 'bot',
             text: msg.text,
             num: msg.local_id,
+            id: msg.id,
+            reaction: msg.reaction,
             time: msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''
           });
         });
@@ -2418,6 +2467,15 @@
         }
       }));
 
+      // Remember the source of the API-triggered escalation, even if the user
+      // changes the visible bot chat before SUPPORT_RESPONSE arrives.
+      if (/(^|\s)оператор[.!?,…]*($|\s)/i.test(text)) {
+        const key = 'alpha_support_pending_sources_' + userUuid;
+        const pending = safeParseLS(key, []);
+        pending.push(outgoingChatId);
+        setLSObj(key, pending);
+      }
+
       // Render user bubble
       appendRenderedMessage({
         role: 'user',
@@ -2489,20 +2547,14 @@
             <div class="escalation-text">
               <b>База знаний:</b> Не найдена точная инструкция по вашему запросу. Перевести на оператора?
             </div>
-            <button class="btn-escalate" onclick="escalateToOperator()">🎧 Вызвать оператора</button>
+            <span class="escalation-text">Напишите «оператор» в чат, чтобы обратиться к специалисту.</span>
           </div>
         `;
       }
 
       let actionsHtml = '';
       if (!isUser) {
-        actionsHtml = `
-          <div class="message-actions">
-            <button class="btn-fb" onclick="toggleFb(this, 'like')">👍 Полезно</button>
-            <button class="btn-fb" onclick="toggleFb(this, 'dislike')">👎 Не помогло</button>
-            <button class="btn-fb" onclick="copyText(this)">📋 Копировать</button>
-          </div>
-        `;
+        actionsHtml = `<div class="message-actions">${reactionButtons(opts.id, opts.reaction)}</div>`;
       }
 
       row.innerHTML = `
@@ -2580,17 +2632,45 @@
     }
 
     // ---------------- ESCALATION & FEEDBACK ----------------
-    function escalateToOperator() {
-      appendSystemMessage('🔄 Обращение переведено на специалиста технической поддержки (L2). Ожидайте ответа...', 'info');
-      updateLineBadge({ code: 'L2', name: 'L2 • Техподдержка портала' });
-      alert('Запрос передан оператору 2-й линии. Оператор подключится к сессии в течение регламентного времени.');
+    function reactionButtons(messageId, reaction = 0) {
+      const id = Number(messageId);
+      const ready = Number.isSafeInteger(id) && id > 0;
+      return [1, -1].map(value => `<button class="btn-fb ${Number(reaction) === value ? value === 1 ? 'active-like' : 'active-dislike' : ''}" data-message-id="${ready ? id : ''}" data-reaction="${value}" aria-pressed="${Number(reaction) === value}" ${ready ? '' : 'disabled title="Обновите историю, чтобы оценить сохранённый ответ"'} onclick="toggleFb(this)">${value === 1 ? '👍 Полезно' : '👎 Не помогло'}</button>`).join('') +
+        '<button class="btn-fb" onclick="copyText(this)">📋 Копировать</button><span class="reaction-notice" role="status"></span>';
     }
 
-    function toggleFb(btn, type) {
+    async function toggleFb(btn) {
       const parent = btn.parentElement;
-      parent.querySelectorAll('.btn-fb').forEach(b => b.classList.remove('active-like', 'active-dislike'));
-      if (type === 'like') btn.classList.add('active-like');
-      else btn.classList.add('active-dislike');
+      if (parent.dataset.saving === 'true') return;
+      const messageId = Number(btn.dataset.messageId);
+      if (!Number.isSafeInteger(messageId) || messageId <= 0) return;
+      const reaction = btn.getAttribute('aria-pressed') === 'true' ? 0 : Number(btn.dataset.reaction);
+      const buttons = parent.querySelectorAll('[data-reaction]');
+      const notice = parent.querySelector('.reaction-notice');
+      parent.dataset.saving = 'true';
+      buttons.forEach(button => {button.disabled = true;});
+      notice.textContent = '';
+      try {
+        const response = await fetch(`${getApiBase()}/api/chat/reaction`, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({message_id: messageId, reaction})
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        if (data.status !== 'ok') throw new Error('Reaction was not saved');
+        buttons.forEach(button => {
+          const selected = Number(button.dataset.reaction) === Number(data.reaction);
+          button.setAttribute('aria-pressed', String(selected));
+          button.classList.toggle('active-like', selected && button.dataset.reaction === '1');
+          button.classList.toggle('active-dislike', selected && button.dataset.reaction === '-1');
+        });
+        notice.textContent = '';
+      } catch (error) {
+        notice.textContent = '';
+      } finally {
+        parent.dataset.saving = 'false';
+        buttons.forEach(button => {button.disabled = false;});
+      }
     }
 
     function copyText(btn) {
@@ -2652,6 +2732,7 @@
 
     // ---------------- LOGOUT ----------------
     function logout() {
+      resetSupportState();
       localStorage.removeItem(LS_USER_KEY);
       localStorage.removeItem(LS_ROLE_KEY);
       localStorage.removeItem(LS_CHAT_KEY);
@@ -2677,6 +2758,408 @@
       createUser();
     }
 
+    // Operator dialogs use the same user and WebSocket as bot chats.
+    let activeChatKind = 'bot';
+    let currentSupportId = null;
+    const supportStates = new Map();
+    let supportListVersion = 0;
+    let supportSelectionVersion = 0;
+
+    function getSupportApiBase() {
+      // Override this URL when the support service is published behind a proxy.
+      return window.SUPPORT_API_BASE || `${location.protocol === 'https:' ? 'https:' : 'http:'}//${location.hostname || 'localhost'}:8067/api`;
+    }
+
+    function supportState(id) {
+      if (!supportStates.has(id)) supportStates.set(id, {
+        id, messages: [], draft: '', supporter: null, problem: '',
+        is_closed: false, feedback: null, feedback_text: null, unread: 0, status: 'waiting',
+        statusDirty: false, hasServerStatus: false, historyOpen: false, botHistory: null,
+        historyLoading: false, historyError: '',
+        sourceChatId: safeParseLS('alpha_support_sources_' + userUuid, {})[id] ?? null
+      });
+      return supportStates.get(id);
+    }
+
+    function resetSupportState() {
+      ++supportListVersion;
+      ++supportSelectionVersion;
+      supportStates.clear();
+      currentSupportId = null;
+      showBotView();
+      renderSupportList();
+      document.getElementById('supportMessages').innerHTML = '';
+      document.getElementById('supportInput').value = '';
+    }
+
+    function showBotView() {
+      closeChatSidebar();
+      activeChatKind = 'bot';
+      ++supportSelectionVersion;
+      document.getElementById('botView').classList.remove('hidden');
+      document.getElementById('supportView').classList.add('hidden');
+      renderChatList();
+      renderSupportList();
+    }
+
+    function showSupportView() {
+      closeChatSidebar();
+      activeChatKind = 'support';
+      document.getElementById('botView').classList.add('hidden');
+      document.getElementById('supportView').classList.remove('hidden');
+      document.getElementById('supportSection').open = true;
+      renderChatList();
+    }
+
+    function toggleChatSidebar(button) {
+      const expanded = document.getElementById('chatSidebar').classList.toggle('mobile-open');
+      button.setAttribute('aria-expanded', String(expanded));
+    }
+
+    function closeChatSidebar() {
+      document.getElementById('chatSidebar').classList.remove('mobile-open');
+      document.querySelector('.btn-chat-navigation').setAttribute('aria-expanded', 'false');
+    }
+
+    function renderSupportList() {
+      const list = document.getElementById('supportChatList');
+      list.innerHTML = '';
+      const states = [...supportStates.values()].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+      document.getElementById('supportCount').textContent = states.length;
+      states.forEach(state => {
+        const li = document.createElement('li');
+        const button = document.createElement('button');
+        button.className = `chat-item ${activeChatKind === 'support' && currentSupportId === state.id ? 'active' : ''}`;
+        button.onclick = () => selectSupportDialog(state.id);
+        button.innerHTML = `<div class="chat-item-info">
+          <div class="chat-item-title">${escapeHtml(state.problem || 'Обращение к оператору')}</div>
+          <div class="chat-item-sub">Линия поддержки: ${escapeHtml(state.supporter?.line ?? 'не назначена')} · ${supportStatusLabel(state)}${state.feedback != null ? ` · ★ ${escapeHtml(state.feedback)}/5` : ''}</div>
+          ${state.unread ? `<div class="chat-item-sub">Новых сообщений: ${state.unread}</div>` : ''}
+        </div>`;
+        li.appendChild(button);
+        list.appendChild(li);
+      });
+    }
+
+    async function fetchSupportDialogs() {
+      if (!userUuid) return;
+      const owner = userUuid;
+      const version = ++supportListVersion;
+      const notice = document.getElementById('supportListNotice');
+      try {
+        const res = await fetch(`${getSupportApiBase()}/dialogs/user/${owner}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const dialogs = await res.json();
+        if (version !== supportListVersion || owner !== userUuid) return;
+        dialogs.forEach(meta => {
+          const state = supportState(meta.id);
+          // Preserve locally received closure and feedback until REST catches up.
+          if (meta.chat_id != null) bindSupportSource(state, meta.chat_id);
+          const {status, ...details} = meta;
+          Object.assign(state, details, { is_closed: state.is_closed || meta.is_closed,
+            feedback: meta.feedback ?? state.feedback, feedback_text: meta.feedback_text ?? state.feedback_text });
+          const serverStatus = normalizeSupportStatus(status);
+          if (serverStatus) {
+            state.hasServerStatus = true;
+            if (!state.statusDirty || state.status === serverStatus) {
+              state.status = serverStatus;
+              state.statusDirty = false;
+            }
+          }
+        });
+        notice.textContent = dialogs.length ? '' : 'Чтобы обратиться к специалисту, напишите «оператор» в чате с ботом.';
+        renderSupportList();
+        await Promise.all(dialogs.map(async meta => {
+          try {
+            const response = await fetch(`${getSupportApiBase()}/supporters/${meta.id}`);
+            if (!response.ok) return;
+            const supporter = await response.json();
+            if (version !== supportListVersion || owner !== userUuid) return;
+            supportState(meta.id).supporter = supporter;
+          } catch (error) { console.warn('Не удалось загрузить оператора:', error); }
+        }));
+        if (version !== supportListVersion || owner !== userUuid) return;
+        renderSupportList();
+        if (activeChatKind === 'support' && currentSupportId) {
+          renderSupportHeader();
+          renderSupportMessages(false);
+        }
+      } catch (error) {
+        if (version !== supportListVersion || owner !== userUuid) return;
+        notice.textContent = 'Не удалось обновить обращения. Нажмите ↻, чтобы повторить.';
+        console.warn('Support API:', error);
+      }
+    }
+
+    function mergeSupportMessages(server, cached) {
+      const remaining = [...cached];
+      const merged = server.map(message => {
+        const index = remaining.findIndex(local => local.id ? local.id === message.id : local.role === message.role && local.text === message.text);
+        if (index !== -1) remaining.splice(index, 1);
+        return message;
+      });
+      return merged.concat(remaining);
+    }
+
+    async function selectSupportDialog(id) {
+      const version = ++supportSelectionVersion;
+      const owner = userUuid;
+      currentSupportId = id;
+      const state = supportState(id);
+      state.unread = 0;
+      showSupportView();
+      renderSupportList();
+      renderSupportDialog();
+      document.getElementById('supportNotice').textContent = 'Обновление истории…';
+      try {
+        const messages = [];
+        let total;
+        do {
+          const res = await fetch(`${getSupportApiBase()}/dialogs/${id}/messages?limit=200&offset=${messages.length}`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          messages.push(...data.items);
+          total = data.total;
+          if (!data.items.length) break;
+        } while (messages.length < total);
+        if (owner !== userUuid) return;
+        state.messages = mergeSupportMessages(messages, state.messages);
+        // Compatibility with older support APIs which do not expose status yet.
+        if (!state.hasServerStatus && !state.statusDirty) {
+          state.status = state.messages.at(-1)?.role === 'support' ? 'complete' : 'waiting';
+        }
+        if (version !== supportSelectionVersion || activeChatKind !== 'support') return;
+        document.getElementById('supportNotice').textContent = '';
+        renderSupportHeader();
+        renderSupportList();
+        renderSupportMessages();
+      } catch (error) {
+        if (version !== supportSelectionVersion || owner !== userUuid) return;
+        document.getElementById('supportNotice').textContent = 'Не удалось обновить историю. Сохранённые сообщения доступны; выберите чат ещё раз для повтора.';
+      }
+    }
+
+    function renderSupportHeader() {
+      const state = supportState(currentSupportId);
+      document.getElementById('supportTitle').textContent = state.problem || 'Обращение к оператору';
+      document.getElementById('supportOperator').textContent = state.supporter ? [state.supporter.name, state.supporter.department].filter(Boolean).join(' · ') : 'Специалист назначается…';
+      const line = document.getElementById('supportLine');
+      line.textContent = `Линия поддержки: ${state.supporter?.line ?? 'не назначена'}`;
+      line.className = `line-badge l${[1,2,3].includes(state.supporter?.line) ? state.supporter.line : 1}`;
+      document.getElementById('supportStatus').textContent = supportStatusLabel(state);
+      document.getElementById('supportEnd').classList.toggle('hidden', state.is_closed);
+    }
+
+    function renderSupportDialog() {
+      const state = supportState(currentSupportId);
+      renderSupportHeader();
+      renderSupportMessages();
+      document.getElementById('supportComposer').classList.toggle('hidden', state.is_closed);
+      const input = document.getElementById('supportInput');
+      input.value = state.draft;
+      input.placeholder = 'Написать оператору…';
+      input.disabled = false;
+      input.form.querySelector('button').disabled = false;
+      const feedback = document.getElementById('supportFeedback');
+      feedback.classList.toggle('hidden', !state.is_closed);
+      feedback.innerHTML = !state.is_closed ? '' : state.feedback != null
+        ? `<span>Спасибо за оценку: ★ ${escapeHtml(state.feedback)}/5</span>${state.feedback_text ? `<p class="support-text">${escapeHtml(state.feedback_text)}</p>` : ''}`
+        : `<form onsubmit="submitSupportFeedback(event)"><label>Оцените оператора <select id="supportRating">${[5,4,3,2,1].map(n => `<option value="${n}">${n} ★</option>`).join('')}</select></label><input id="supportFeedbackText" placeholder="Комментарий (необязательно)" aria-label="Комментарий к оценке" /><button class="btn-action-sm" type="submit">Отправить оценку</button></form>`;
+    }
+
+    function renderSupportMessages(scroll = true) {
+      const state = supportState(currentSupportId);
+      const messages = [...state.messages];
+      if (state.problem && !(messages[0]?.role === 'user' && messages[0].text === state.problem)) messages.unshift({role:'user', text:state.problem});
+      const container = document.getElementById('supportMessages');
+      const previousScroll = container.scrollTop;
+      container.innerHTML = `<div class="support-history-control"><button class="btn-action-sm" onclick="toggleSupportBotHistory()" aria-expanded="${state.historyOpen}" aria-controls="supportBotHistory">${state.historyOpen ? '↓ Скрыть историю с ботом' : '↑ История общения с ботом'}</button></div>
+        <section id="supportBotHistory" class="support-bot-history ${state.historyOpen ? '' : 'hidden'}" aria-label="История общения с ботом">${renderSupportBotHistory(state)}</section>` + messages.map((m, index) => {
+        const initial = index === 0 && state.problem;
+        return `<div class="message-row ${initial ? 'initial-request' : m.role === 'user' ? 'user' : 'bot'}"><div class="message-body"><div class="message-meta">${initial ? 'Первичное обращение' : m.role === 'user' ? 'Вы' : escapeHtml(state.supporter?.name || 'Оператор')}</div><div class="bubble support-text">${escapeHtml(m.text)}</div></div></div>`;
+      }).join('');
+      if (!state.is_closed && ['waiting', 'in_progress'].includes(state.status)) {
+        container.insertAdjacentHTML('beforeend', `<div class="message-row bot support-typing" role="status" aria-label="Ожидание ответа оператора"><div class="bubble"><span>${state.status === 'in_progress' ? 'Оператор готовит ответ' : 'Ожидаем ответа оператора'}</span><span class="typing-cursor" aria-hidden="true"></span></div></div>`);
+      }
+      container.scrollTop = scroll && !state.historyOpen ? container.scrollHeight : previousScroll;
+    }
+
+    function saveSupportDraft() {
+      if (currentSupportId) supportState(currentSupportId).draft = document.getElementById('supportInput').value;
+    }
+
+    function sendSupportEvent(event, data) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        document.getElementById('supportNotice').textContent = 'Нет соединения. Сообщение не отправлено.';
+        return false;
+      }
+      socket.send(JSON.stringify({event, status: 'OK', data: {user_uuid: userUuid, ...data}}));
+      document.getElementById('supportNotice').textContent = '';
+      return true;
+    }
+
+    function sendSupportMessage(event) {
+      event.preventDefault();
+      const input = document.getElementById('supportInput');
+      const text = input.value.trim();
+      if (!text || text.length > 1000) return;
+      if (!currentSupportId) return;
+      const state = supportState(currentSupportId);
+      if (state.is_closed || !sendSupportEvent('SUPPORT_MESSAGE', {support_dialog_id: state.id, text})) return;
+      state.messages.push({role: 'user', text, created_at: new Date().toISOString()});
+      state.draft = '';
+      input.value = '';
+      setSupportStatus(state, 'waiting');
+    }
+
+    function endSupportDialog() {
+      if (!currentSupportId || supportState(currentSupportId).is_closed) return;
+      if (!confirm('Завершить диалог с оператором?')) return;
+      if (sendSupportEvent('END_SUPPORT_DIALOG_REQUEST', {support_dialog_id: currentSupportId})) document.getElementById('supportNotice').textContent = 'Завершаем диалог…';
+    }
+
+    function submitSupportFeedback(event) {
+      event.preventDefault();
+      const state = supportState(currentSupportId);
+      const feedback = Number(document.getElementById('supportRating').value);
+      const feedback_text = document.getElementById('supportFeedbackText').value.trim() || null;
+      if (!sendSupportEvent('USER_FEEDBACK_RESPONSE', {support_dialog_id: state.id, feedback, feedback_text})) return;
+      Object.assign(state, {feedback, feedback_text});
+      renderSupportDialog();
+      renderSupportList();
+    }
+
+    function handleSupportEvent(event, data) {
+      if (data.user_uuid && data.user_uuid !== userUuid) return false;
+      if (event === 'error' && activeChatKind === 'support' && data.support_dialog_id) {
+        document.getElementById('supportNotice').textContent = data.details || 'Не удалось выполнить запрос.';
+        return true;
+      }
+      if (!['support_response', 'support_message', 'update_dialog_status', 'user_feedback_request'].includes(event)) return false;
+      const id = data.support_dialog_id || data.dialog_id;
+      if (!id) return true;
+      const state = supportState(id);
+      if (event === 'support_response') {
+        const key = 'alpha_support_pending_sources_' + userUuid;
+        const pending = safeParseLS(key, []);
+        const source = data.chat_id ?? (pending.length && new Set(pending.map(String)).size === 1 ? pending[0] : null);
+        if (source != null) {
+          bindSupportSource(state, source);
+          const index = pending.findIndex(id => isSameChat(id, source));
+          if (index !== -1) pending.splice(index, 1);
+          setLSObj(key, pending);
+        }
+        setSupportStatus(state, 'waiting');
+        fetchSupportDialogs();
+        selectSupportDialog(id);
+      } else if (event === 'support_message') {
+        if (!data.id || !state.messages.some(m => m.id === data.id)) {
+          state.messages.push({id: data.id, role: 'support', text: data.text, created_at: data.created_at || new Date().toISOString()});
+          if (activeChatKind !== 'support' || currentSupportId !== id) state.unread++;
+        }
+        setSupportStatus(state, 'complete');
+      } else if (event === 'update_dialog_status') {
+        setSupportStatus(state, data.new_status);
+      } else {
+        state.is_closed = true;
+        if (activeChatKind === 'support' && currentSupportId === id) {
+          document.getElementById('supportNotice').textContent = '';
+          renderSupportDialog();
+        }
+      }
+      renderSupportList();
+      return true;
+    }
+
+    function normalizeSupportStatus(status) {
+      const value = String(status || '').toLowerCase();
+      return ['waiting', 'in_progress', 'complete'].includes(value) ? value : null;
+    }
+
+    function supportStatusLabel(state) {
+      if (state.is_closed) return 'Закрыт';
+      return {waiting: 'Ожидает', in_progress: 'В работе', complete: 'Обработан'}[state.status] || 'Ожидает';
+    }
+
+    function setSupportStatus(state, status) {
+      const normalized = normalizeSupportStatus(status);
+      if (!normalized || state.is_closed) return;
+      state.status = normalized;
+      state.statusDirty = true;
+      renderSupportList();
+      if (activeChatKind === 'support' && currentSupportId === state.id) {
+        renderSupportHeader();
+        renderSupportMessages();
+      }
+    }
+
+    function bindSupportSource(state, chatId) {
+      if (state.sourceChatId !== chatId) state.botHistory = null;
+      state.sourceChatId = chatId;
+      const key = 'alpha_support_sources_' + userUuid;
+      const sources = safeParseLS(key, {});
+      sources[state.id] = chatId;
+      setLSObj(key, sources);
+    }
+
+    function chooseSupportSource(chatId) {
+      if (!currentSupportId || !chats.some(chat => isSameChat(chat.id, chatId))) return;
+      bindSupportSource(supportState(currentSupportId), chatId);
+      loadSupportBotHistory();
+    }
+
+    function renderSupportBotHistory(state) {
+      if (!state.historyOpen) return '';
+      if (state.sourceChatId == null) return `<label>Выберите исходный чат с ботом <select aria-label="Исходный чат с ботом" onchange="chooseSupportSource(this.value)"><option value="">Выберите чат</option>${chats.map(chat => `<option value="${escapeHtml(chat.id)}">${escapeHtml(getChatDisplayTitle(chat))}</option>`).join('')}</select></label>`;
+      if (state.historyLoading) return '<p role="status">Загрузка истории общения с ботом…</p>';
+      if (state.historyError) return '<p role="alert">Не удалось загрузить историю.</p><button class="btn-action-sm" onclick="loadSupportBotHistory()">Повторить загрузку</button>';
+      if (!state.botHistory?.length) return '<p>История общения с ботом пока пуста.</p>';
+      return state.botHistory.map(chat => `<div class="support-history-chat"><h3>${escapeHtml(chat.title)}</h3>${chat.messages.map(message => {
+        const isUser = String(message.user_role || 'user').toLowerCase() === 'user';
+        return `<div class="message-row ${isUser ? 'user' : 'bot'}"><div class="message-body"><div class="message-meta">${isUser ? 'Вы' : 'ИИ-консультант'}</div><div class="bubble support-text">${escapeHtml(message.text)}</div></div></div>`;
+      }).join('')}</div>`).join('');
+    }
+
+    async function toggleSupportBotHistory() {
+      if (!currentSupportId) return;
+      const state = supportState(currentSupportId);
+      state.historyOpen = !state.historyOpen;
+      renderSupportMessages(false);
+      if (state.historyOpen && !state.botHistory && !state.historyLoading) await loadSupportBotHistory();
+    }
+
+    async function loadSupportBotHistory() {
+      if (!currentSupportId || !userUuid) return;
+      const owner = userUuid;
+      const state = supportState(currentSupportId);
+      if (state.historyLoading || state.sourceChatId == null) return;
+      const sourceChatId = state.sourceChatId;
+      state.historyLoading = true;
+      state.historyError = '';
+      renderSupportMessages(false);
+      try {
+        const messages = [];
+        while (true) {
+          const res = await fetch(`${getApiBase()}/api/chat/${encodeURIComponent(sourceChatId)}/messages?start_message_idx=${messages.length}&batch_size=50`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const page = await res.json();
+          if (page.status !== 'ok' || !Array.isArray(page.messages)) throw new Error('Invalid message history');
+          messages.push(...page.messages);
+          if (page.messages.length < 50) break;
+        }
+        if (owner !== userUuid || supportStates.get(state.id) !== state || state.sourceChatId !== sourceChatId) return;
+        const chat = chats.find(chat => isSameChat(chat.id, sourceChatId)) || {id: sourceChatId};
+        state.botHistory = messages.length ? [{title: getChatDisplayTitle(chat), messages: messages.reverse()}] : [];
+      } catch (error) {
+        if (owner !== userUuid || supportStates.get(state.id) !== state) return;
+        state.historyError = 'Не удалось загрузить историю';
+        console.warn('Bot history:', error);
+      } finally {
+        state.historyLoading = false;
+        if (owner === userUuid && supportStates.get(state.id) === state && activeChatKind === 'support' && currentSupportId === state.id) renderSupportMessages(false);
+      }
+    }
+
     // Expose for window
     window.createUser = createUser;
     window.createChat = createChat;
@@ -2687,7 +3170,6 @@
     window.handleSendForm = handleSendForm;
     window.sendChip = sendChip;
     window.logout = logout;
-    window.escalateToOperator = escalateToOperator;
     window.toggleFb = toggleFb;
     window.copyText = copyText;
     window.openEvalModal = openEvalModal;

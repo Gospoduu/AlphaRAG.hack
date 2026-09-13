@@ -77,6 +77,7 @@ async def get_messages_endpoint(
             "user_role": message.user_role,
             "user_uuid": message.user_uuid,
             "text": message.text,
+            "reaction": message.reaction,
             "created_at": message.created_at.isoformat(),
         } for message in chat]
 
@@ -158,9 +159,6 @@ async def reaction_endpoint(
             chat_id=request.chat_id,
             redis=redis,
         )
-
-
-
 
     return {
         "status": "ok",
