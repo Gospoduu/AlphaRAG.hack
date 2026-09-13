@@ -56,6 +56,10 @@ for event_name in event_manager.list_events():
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+import httpx
+from fastapi.responses import Response
+
+media_mounted = False
 for _cand in [
     BASE_DIR.parent / "dataset" / "media",
     BASE_DIR.parent / "dataset" / "knowledgebase_mos_ru" / "media",
@@ -67,7 +71,22 @@ for _cand in [
     if _cand.exists():
         app.mount("/media", StaticFiles(directory=_cand), name="media")
         logger.info(f"Mounted /media from {_cand}")
+        media_mounted = True
         break
+
+if not media_mounted:
+    @app.get("/media/{file_path:path}")
+    async def proxy_media(file_path: str):
+        for host in ["http://localhost:8001", "http://127.0.0.1:8001", "http://host.docker.internal:8001"]:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{host}/media/{file_path}")
+                    if resp.status_code == 200:
+                        content_type = resp.headers.get("content-type", "image/png")
+                        return Response(content=resp.content, media_type=content_type)
+            except Exception:
+                continue
+        return Response(status_code=404)
 
 
 # Пример маршрута для проверки
