@@ -21,7 +21,7 @@ async def get_chats_endpoint(
         user_uuid: str,
         db: AsyncSession = Depends(get_db)):
     chats = await get_user_chats(db, UUID(user_uuid))
-    resp = [{"id": chat.id, "title": chat.title, "is_blocked": chat.is_blocked} for chat in chats]
+    resp = [{"id": chat.id, "title": chat.title, "is_blocked": chat.is_blocked, "is_generate": chat.is_generate} for chat in chats]
     return {"status": "ok","chats": resp}
 
 @router.post("/")

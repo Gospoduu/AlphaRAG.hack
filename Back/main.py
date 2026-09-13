@@ -13,18 +13,21 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-from Back.infra.metrics import HttpMetricsMiddleware, router as metrics_router, ws_commands
+from Back.modules.chat.metrics import HttpMetricsMiddleware, router as metrics_router, ws_commands
 from Back.modules.chat.crud import ping_db
 from Back.infra.db.start_db import init_db
 from Back.infra.db.db import get_db
 from Back.infra.redis.cache_manager import redis_is_fine, get_redis
 from Back.infra.kafka.broker import broker
-import Back.infra.kafka.subscribers
 from Back.modules.user.api import router as user_router
 from Back.ws.ws import router as user_ws_router
 from Back.modules.chat.api import router as chat_router
-import Back.registry.handlers_registry
-import Back.registry.events_registry
+
+# These imports register events, command handlers and Kafka subscriptions.
+# Keep them before metrics initialization and broker.start().
+import Back.registry.events_registry  # noqa: F401
+import Back.registry.handlers_registry  # noqa: F401
+import Back.infra.kafka.subscribers  # noqa: F401
 
 BASE_DIR = Path(__file__).resolve().parent  # .../Back
 STATIC_DIR = BASE_DIR / "static"

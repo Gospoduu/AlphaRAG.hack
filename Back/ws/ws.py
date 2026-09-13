@@ -1,13 +1,11 @@
 # Back/ws/ws.py
-import json
 import logging
 
 import anyio
-from typing import AsyncGenerator, Callable, Optional
 from fastapi.params import Depends
 from redis.asyncio import Redis
 from Back.ws.managers import manager
-from Back.infra.metrics import ws_commands
+from Back.modules.chat.metrics import ws_commands
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from Back.core.events_bus.dispatcher import dispatcher_manager
 
@@ -16,7 +14,6 @@ from Back.infra.db.db import get_db
 from uuid import UUID
 from Back.infra.redis.cache_manager import get_redis
 from ..core.events_bus.event_manager import event_manager
-from sqlalchemy.ext.asyncio import AsyncSession
 from Back.infra.redis.streams import add_new_cmd, subscribe_to_emit_stream
 from pydantic import ValidationError
 import asyncio

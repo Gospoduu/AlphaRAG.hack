@@ -1,7 +1,7 @@
 import unittest
 from fastapi import FastAPI
 from prometheus_client.parser import text_string_to_metric_families
-from Back.infra.metrics import HttpMetricsMiddleware, registry, router
+from Back.modules.chat.metrics import HttpMetricsMiddleware, registry, router
 from prometheus_client import generate_latest
 
 

@@ -525,7 +525,19 @@
     #supportView .chat-header-info { min-width: 0; flex-wrap: wrap; }
     #supportTitle { overflow-wrap: anywhere; }
     #supportFeedback { padding: 16px 24px; border-top: 1px solid var(--border); }
-    #supportFeedback form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    #supportFeedback { text-align: center; background: #f8fafc; }
+    #supportFeedback form { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 480px; margin: 0 auto; padding: 16px; }
+    #supportFeedback button { min-height: 48px; padding: 12px 32px; background: #2563eb; color: white; font-size: 16px; border-radius: 12px; }
+    #supportFeedback input { width: 100%; box-sizing: border-box; }
+    #supportFeedback label { font-size: 18px; font-weight: 600; }
+    .chat-item.support-closed { background: #f1f3f5; color: #6b7280; }
+    .chat-item.support-closed.active { background: #e5e7eb; border-color: #9ca3af; }
+    #endSupportModal { margin: auto; border: 0; border-radius: 20px; padding: 28px; max-width: 420px; width: calc(100% - 48px); box-shadow: 0 24px 80px #0f172a40; }
+    #endSupportModal::backdrop { background: #0f172a80; }
+    #endSupportModal p { color: #64748b; line-height: 1.6; }
+    #endSupportModal .modal-actions { display: flex; justify-content: flex-end; gap: 12px; }
+    #endSupportModal button { padding: 12px 18px; border: 0; border-radius: 10px; cursor: pointer; }
+    #endSupportModal .confirm-end { background: #2563eb; color: white; }
     #supportFeedback input { flex: 1; min-width: 120px; }
     #supportFeedback select, #supportFeedback input { padding: 8px; border: 1px solid var(--border); border-radius: 8px; }
     .support-history-control { display: flex; justify-content: center; }
@@ -1543,7 +1555,7 @@
     function getChatDisplayTitle(chat) {
       if (!chat) return 'Диалог не выбран';
       const cid = normalizeChatId(chat.id);
-      const customTitle = localStorage.getItem('alpha_chat_title_' + cid);
+      const customTitle = localStorage.getItem('alpha_chat_title_' + userUuid + '_' + cid);
       if (customTitle && customTitle.trim()) {
         return customTitle.trim();
       }
@@ -1567,9 +1579,9 @@
     function setLastId(chatId, lastId) {
       const cid = normalizeChatId(chatId);
       if (!cid || !lastId) return;
-      const m = safeParseLS(LS_STREAM_IDS_KEY, {});
+      const m = safeParseLS(LS_STREAM_IDS_KEY + '_' + userUuid, {});
       m[cid] = String(lastId);
-      setLSObj(LS_STREAM_IDS_KEY, m);
+      setLSObj(LS_STREAM_IDS_KEY + '_' + userUuid, m);
     }
     function extractLastId(message) {
       const data = message?.data || message?.payload || message || {};
@@ -1578,27 +1590,27 @@
     function setGenText(chatId, text) {
       const cid = normalizeChatId(chatId);
       if (!cid) return;
-      const m = safeParseLS(LS_GEN_TEXT_KEY, {});
+      const m = safeParseLS(LS_GEN_TEXT_KEY + '_' + userUuid, {});
       m[cid] = String(text || '');
-      setLSObj(LS_GEN_TEXT_KEY, m);
+      setLSObj(LS_GEN_TEXT_KEY + '_' + userUuid, m);
     }
     function getGenText(chatId) {
       const cid = normalizeChatId(chatId);
       if (!cid) return '';
-      const m = safeParseLS(LS_GEN_TEXT_KEY, {});
+      const m = safeParseLS(LS_GEN_TEXT_KEY + '_' + userUuid, {});
       return m[cid] || '';
     }
     function setGenActive(chatId, active) {
       const cid = normalizeChatId(chatId);
       if (!cid) return;
-      const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
+      const m = safeParseLS(LS_GEN_ACTIVE_KEY + '_' + userUuid, {});
       m[cid] = !!active;
-      setLSObj(LS_GEN_ACTIVE_KEY, m);
+      setLSObj(LS_GEN_ACTIVE_KEY + '_' + userUuid, m);
     }
     function isGenActive(chatId) {
       const cid = normalizeChatId(chatId);
       if (!cid) return false;
-      const m = safeParseLS(LS_GEN_ACTIVE_KEY, {});
+      const m = safeParseLS(LS_GEN_ACTIVE_KEY + '_' + userUuid, {});
       return !!m[cid];
     }
     function isChatStreaming(chatId) {
@@ -1643,6 +1655,7 @@
         // Simple offline fallback
         let escaped = escapeHtml(rawText);
         escaped = escaped.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" onclick="openImgModal(this.src)" />');
+        escaped = escaped.replace(/(?<!!)\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
         escaped = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         escaped = escaped.replace(/\*(.*?)\*/g, '<em>$1</em>');
         escaped = escaped.replace(/`([^`]+)`/g, '<code>$1</code>');
@@ -1707,6 +1720,9 @@
       const savedChatId = localStorage.getItem(LS_CHAT_KEY);
 
       const messageInput = document.getElementById('messageInput');
+      document.getElementById('messageContainer').addEventListener('click', event => {
+        if (event.target.tagName === 'IMG') openImgModal(event.target.src);
+      });
       if (messageInput) {
         messageInput.addEventListener('input', (e) => {
           const hint = document.getElementById('charCountHint');
@@ -1721,7 +1737,9 @@
         document.getElementById('authModal').classList.add('hidden');
         document.getElementById('app').classList.remove('hidden');
 
-        await fetchChats();
+        connectWebSocket(userUuid);
+        void fetchSupportDialogs();
+        if (!await fetchChats()) return;
 
         const matchingChat = savedChatId ? chats.find(c => isSameChat(c.id, savedChatId)) : null;
         if (matchingChat) {
@@ -1739,7 +1757,6 @@
           await createChat();
         }
 
-        connectWebSocket(userUuid);
       } else {
         // Automatically create new user & first chat!
         await createUser();
@@ -1771,7 +1788,9 @@
           document.getElementById('authModal').classList.add('hidden');
           document.getElementById('app').classList.remove('hidden');
 
-          await fetchChats();
+          connectWebSocket(userUuid);
+          void fetchSupportDialogs();
+          if (!await fetchChats()) return;
           if (chats.length > 0) {
             currentChatId = chats[0].id;
             setCurrentChatId(currentChatId);
@@ -1783,7 +1802,6 @@
             await createChat();
           }
 
-          connectWebSocket(userUuid);
         } else {
           console.error('Failed to create user:', data);
         }
@@ -2138,19 +2156,29 @@
       if (!userUuid) return;
       try {
         const res = await fetch(`${getApiBase()}/api/chat/${userUuid}/chats`);
-        if (res.status === 404 || res.status === 500) {
+        if (res.status === 404) {
           console.warn('User not found on backend when fetching chats, creating user...');
-          await createUser();
-          return;
+          throw new Error('Не удалось загрузить чаты пользователя');
         }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (data.status === 'ok') {
           chats = data.chats || [];
+          for (const chat of chats) {
+            const cid = normalizeChatId(chat.id);
+            if (!chatStreams[cid] && typeof chat.is_generate === 'boolean') {
+              setGenActive(cid, chat.is_generate);
+              if (!chat.is_generate) clearGen(cid);
+            }
+          }
           renderChatList();
+          return true;
         }
       } catch (e) {
         console.error('Failed to fetch chats:', e);
+        document.getElementById('chatList').innerHTML = '<li>Не удалось загрузить чаты. <button onclick="fetchChats()">Повторить</button></li>';
       }
+      return false;
     }
 
     function renderChatList() {
@@ -2201,7 +2229,20 @@
       });
     }
 
+    function updateBotComposer() {
+      const busy = isChatStreaming(currentChatId);
+      const input = document.getElementById('messageInput');
+      if (input) {
+        input.disabled = busy;
+        input.placeholder = busy ? 'Бот готовит ответ…' : 'Напишите сообщение…';
+      }
+      const send = document.getElementById('sendBtn');
+      if (send) send.disabled = busy;
+      document.querySelectorAll('.chip-btn').forEach(button => button.disabled = busy);
+    }
+
     function refreshChatListIndicators() {
+      updateBotComposer();
       const items = document.querySelectorAll('#chatList .chat-item');
       items.forEach(li => {
         const id = li.dataset.chatId;
@@ -2238,7 +2279,7 @@
 
     async function selectChat(chatId) {
       showBotView();
-      if (isSameChat(currentChatId, chatId)) return;
+      if (isSameChat(currentChatId, chatId)) { updateBotComposer(); return; }
       currentChatId = chatId;
       setCurrentChatId(chatId);
       localStorage.setItem(LS_CHAT_KEY, String(chatId));
@@ -2252,6 +2293,7 @@
     }
 
     function setCurrentChatId(chatId) {
+      updateBotComposer();
       const activeChat = chats.find(c => isSameChat(c.id, chatId));
       const titleEl = document.getElementById('chatHeaderTitle');
       if (titleEl) {
@@ -2279,7 +2321,7 @@
         });
 
         // If backend says user not found (e.g. DB restarted or migration ran), recreate user & chat
-        if (res.status === 404 || res.status === 500) {
+        if (res.status === 404) {
           console.warn('Backend rejected user_uuid (404/500), auto-recreating user...');
           await createUser();
           if (btn) btn.disabled = false;
@@ -2288,13 +2330,21 @@
 
         const data = await res.json();
         if (data.status === 'ok') {
+          const cid = normalizeChatId(data.chat_id);
+          ++loadMessagesToken;
+          clearGen(cid);
+          delete chatStreams[cid];
+          delete activeStreamBubbles[cid];
+          delete endReceivedForChat[cid];
+          localStorage.removeItem('alpha_chat_title_' + userUuid + '_' + cid);
           currentChatId = data.chat_id;
+          showEmptyChatPrompt();
           localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
           await fetchChats();
           setCurrentChatId(currentChatId);
           renderChatList();
-          await loadMessages(currentChatId);
-          renderStreamIfNeeded(currentChatId);
+          showEmptyChatPrompt();
+          updateBotComposer();
 
           const input = document.getElementById('messageInput');
           if (input) {
@@ -2324,7 +2374,7 @@
           clearGen(cid);
           delete chatStreams[cid];
           delete activeStreamBubbles[cid];
-          localStorage.removeItem('alpha_chat_title_' + cid);
+          localStorage.removeItem('alpha_chat_title_' + userUuid + '_' + cid);
           chats = chats.filter(c => !isSameChat(c.id, chatId));
           if (isSameChat(currentChatId, chatId)) {
             if (chats.length > 0) {
@@ -2371,6 +2421,13 @@
 
         let msgs = data.messages || [];
         msgs.reverse(); // ASC order for UI
+        const firstQuestion = msgs.find(msg => String(msg.user_role).toLowerCase() === 'user');
+        const titleKey = 'alpha_chat_title_' + userUuid + '_' + cid;
+        if (firstQuestion && !localStorage.getItem(titleKey)) {
+          localStorage.setItem(titleKey, firstQuestion.text.slice(0, 35));
+          setCurrentChatId(chatId);
+          renderChatList();
+        }
 
         if (msgs.length === 0 && !isChatStreaming(cid)) {
           showEmptyChatPrompt();
@@ -2422,12 +2479,14 @@
     }
 
     function sendChip(text) {
+      if (isChatStreaming(currentChatId)) return;
       const input = document.getElementById('messageInput');
       input.value = text;
       sendMessage();
     }
 
     function sendMessage() {
+      if (isChatStreaming(currentChatId)) return;
       const input = document.getElementById('messageInput');
       const text = input.value.trim();
       if (!text) return;
@@ -2499,7 +2558,7 @@
       const cid = normalizeChatId(currentChatId);
 
       // Save first user question as friendly title for this chat
-      const customKey = 'alpha_chat_title_' + cid;
+      const customKey = 'alpha_chat_title_' + userUuid + '_' + cid;
       if (!localStorage.getItem(customKey)) {
         const cleanText = text.replace(/\s+/g, ' ').trim();
         const shortTitle = cleanText.length > 35 ? cleanText.slice(0, 35) + '...' : cleanText;
@@ -2945,7 +3004,7 @@
       states.forEach(state => {
         const li = document.createElement('li');
         const button = document.createElement('button');
-        button.className = `chat-item ${activeChatKind === 'support' && currentSupportId === state.id ? 'active' : ''}`;
+        button.className = `chat-item ${state.is_closed ? 'support-closed' : ''} ${activeChatKind === 'support' && currentSupportId === state.id ? 'active' : ''}`;
         button.onclick = () => selectSupportDialog(state.id);
         button.innerHTML = `<div class="chat-item-info">
           <div class="chat-item-title">${escapeHtml(state.problem || 'Обращение к оператору')}</div>
@@ -2991,7 +3050,9 @@
             if (!response.ok) return;
             const supporter = await response.json();
             if (version !== supportListVersion || owner !== userUuid) return;
-            supportState(meta.id).supporter = supporter;
+            supportState(meta.id).supporter = supporter.supporter || supporter;
+            renderSupportList();
+            if (activeChatKind === 'support' && currentSupportId === meta.id) renderSupportHeader();
           } catch (error) { console.warn('Не удалось загрузить оператора:', error); }
         }));
         if (version !== supportListVersion || owner !== userUuid) return;
@@ -3022,6 +3083,12 @@
       const owner = userUuid;
       currentSupportId = id;
       const state = supportState(id);
+      fetch(`${getSupportApiBase()}/supporters/${id}`).then(response => response.ok ? response.json() : null).then(supporter => {
+        if (!supporter || userUuid !== owner) return;
+        state.supporter = supporter.supporter || supporter;
+        renderSupportList();
+        if (currentSupportId === id && activeChatKind === 'support') renderSupportHeader();
+      }).catch(error => console.warn('Operator:', error));
       state.unread = 0;
       showSupportView();
       renderSupportList();
@@ -3061,7 +3128,7 @@
       document.getElementById('supportOperator').textContent = state.supporter ? [state.supporter.name, state.supporter.department].filter(Boolean).join(' · ') : 'Специалист назначается…';
       const line = document.getElementById('supportLine');
       line.textContent = `Линия поддержки: ${state.supporter?.line ?? 'не назначена'}`;
-      line.className = `line-badge l${[1,2,3].includes(state.supporter?.line) ? state.supporter.line : 1}`;
+      line.className = `line-badge l${[1,2,3].includes(Number(state.supporter?.line)) ? Number(state.supporter.line) : 1}`;
       document.getElementById('supportStatus').textContent = supportStatusLabel(state);
       document.getElementById('supportEnd').classList.toggle('hidden', state.is_closed);
     }
@@ -3130,8 +3197,18 @@
 
     function endSupportDialog() {
       if (!currentSupportId || supportState(currentSupportId).is_closed) return;
-      if (!confirm('Завершить диалог с оператором?')) return;
-      if (sendSupportEvent('END_SUPPORT_DIALOG_REQUEST', {support_dialog_id: currentSupportId})) document.getElementById('supportNotice').textContent = 'Завершаем диалог…';
+      const modal = document.getElementById('endSupportModal');
+      modal.dataset.dialogId = currentSupportId;
+      modal.showModal();
+    }
+
+    function confirmEndSupportDialog() {
+      const modal = document.getElementById('endSupportModal');
+      const id = modal.dataset.dialogId;
+      if (id && !supportState(id).is_closed && sendSupportEvent('END_SUPPORT_DIALOG_REQUEST', {support_dialog_id: id})) {
+        document.getElementById('supportNotice').textContent = 'Завершаем диалог…';
+        modal.close();
+      }
     }
 
     function submitSupportFeedback(event) {
@@ -3167,7 +3244,14 @@
         }
         setSupportStatus(state, 'waiting');
         fetchSupportDialogs();
-        selectSupportDialog(id);
+        if (state.transferScheduled) return true;
+        state.transferScheduled = true;
+        const owner = userUuid;
+        const selection = supportSelectionVersion;
+        if (activeChatKind === 'bot') appendSystemMessage('Подключаем оператора. Через 2 секунды откроется чат поддержки.', 'info');
+        setTimeout(() => {
+          if (owner === userUuid && selection === supportSelectionVersion && activeChatKind === 'bot') selectSupportDialog(id);
+        }, 2000);
       } else if (event === 'support_message') {
         if (!data.id || !state.messages.some(m => m.id === data.id)) {
           state.messages.push({id: data.id, role: 'support', text: data.text, created_at: data.created_at || new Date().toISOString()});
@@ -3299,5 +3383,10 @@
     window.renderStreamIfNeeded = renderStreamIfNeeded;
     window.isChatStreaming = isChatStreaming;
   </script>
+<dialog id="endSupportModal" aria-labelledby="endSupportTitle">
+    <h2 id="endSupportTitle">Завершить диалог?</h2>
+    <p>Переписка сохранится в истории. После завершения вы сможете оценить работу оператора.</p>
+    <div class="modal-actions"><button onclick="document.getElementById('endSupportModal').close()" autofocus>Продолжить общение</button><button class="confirm-end" onclick="confirmEndSupportDialog()">Завершить</button></div>
+  </dialog>
 </body>
 </html>
