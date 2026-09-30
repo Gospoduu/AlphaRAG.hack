@@ -64,6 +64,7 @@ async def schedule_operator_offer(chat_id, message_id, user_uuid, redis):
         ))
         _tasks.add(task)
         task.add_done_callback(_tasks.discard)
+        return OFFER_DELAY_SECONDS
     except Exception:
         logger.exception('Could not schedule operator offer for chat %s', chat_id)
 

@@ -12,10 +12,12 @@ const context = vm.createContext({
   setLSObj:(key,value)=>store.set(key,JSON.stringify(value)),
   isSameChat:(a,b)=>String(a)===String(b), getStreamBubble:()=>null,
   appendRenderedMessage:opts=>rendered.push(opts),
-  document:{querySelectorAll:selector=>selector.includes('.operator-offer')?boxes:[]},
+  isChatBlocked:()=>false, isChatStreaming:()=>false,
+  document:{getElementById:()=>input, querySelectorAll:selector=>selector.includes('.operator-offer')?boxes:[]},
+  sendMessage:()=>sent.push({event:'NEW_MESSAGE',data:{chat_id:7,text:input.value}}),
   socket:{readyState:1,send:raw=>sent.push(JSON.parse(raw))}
 });
-const sent=[];
+const sent=[], input={value:''};
 vm.runInContext(code,context);
 function offer(id,chat=7,requestedAt) {
   return {data:{chat_id:chat,all_text:'Нужен оператор?'}, meta:{is_user_need_support:true,message_id:id,user_query:'Ошибка подписи',offer_requested_at:requestedAt}};
@@ -31,9 +33,9 @@ assert(no.removed);assert.equal(sent.length,0);
 context.handleOperatorOffer(offer(12),'7');
 const yes=box();context.answerOperatorOffer(12,true,yes);context.answerOperatorOffer(12,true,yes);
 assert.equal(sent.length,1);
-assert.equal(sent[0].event,'SUPPORT_REQUEST');
+assert.equal(sent[0].event,'NEW_MESSAGE');
 assert.equal(sent[0].data.chat_id,7);
-assert.equal(sent[0].data.text,'Ошибка подписи');
+assert.equal(sent[0].data.text,'Оператор. Ошибка подписи');
 assert(yes.removed);
 context.handleOperatorOffer(offer(13),'7');
 context.handleOperatorOffer(offer(14,8),'8');

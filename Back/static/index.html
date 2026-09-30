@@ -530,6 +530,11 @@
     #supportFeedback button { min-height: 48px; padding: 12px 32px; background: #2563eb; color: white; font-size: 16px; border-radius: 12px; }
     #supportFeedback input { width: 100%; box-sizing: border-box; }
     #supportFeedback label { font-size: 18px; font-weight: 600; }
+    .chat-item.is-blocked { background: #fff1f2; color: #b91c1c; border: 1px solid #fecaca; }
+    .chat-item.is-blocked.active, .chat-item.is-blocked:hover { background: #fee2e2; border-color: #ef4444; }
+    .chat-item.is-blocked .chat-item-title, .chat-item.is-blocked .chat-item-sub { color: #b91c1c; }
+    #messageInput:disabled { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
+    .chip-btn:disabled { opacity: .5; cursor: not-allowed; }
     .chat-item.support-closed { background: #f1f3f5; color: #6b7280; }
     .chat-item.support-closed.active { background: #e5e7eb; border-color: #9ca3af; }
     #endSupportModal { margin: auto; border: 0; border-radius: 20px; padding: 28px; max-width: 420px; width: calc(100% - 48px); box-shadow: 0 24px 80px #0f172a40; }
@@ -2088,6 +2093,7 @@
         handleOperatorOffer(message, cid);
         return;
       }
+      if (message.meta?.need_to_block_chat) blockChatLocally(cid);
       if (endReceivedForChat[cid]) return;
       endReceivedForChat[cid] = true;
 
@@ -2263,6 +2269,7 @@
             }
           }
           renderChatList();
+          updateBotComposer();
           return true;
         }
       } catch (e) {
@@ -2290,7 +2297,7 @@
         const li = document.createElement('li');
         const streaming = isChatStreaming(chat.id);
         const isActive = activeChatKind === 'bot' && isSameChat(chat.id, currentChatId);
-        li.className = `chat-item ${isActive ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
+        li.className = `chat-item ${isChatBlocked(chat.id) ? 'is-blocked' : ''} ${isActive ? 'active' : ''} ${streaming ? 'is-streaming' : ''}`;
         li.dataset.chatId = String(chat.id);
         li.onclick = (e) => {
           if (e.target.closest('.btn-delete-chat')) return;
@@ -2311,7 +2318,7 @@
                 <div class="chat-item-title" title="${escapeHtml(displayTitle)}">${escapeHtml(displayTitle)}</div>
                 ${streamBadge}
               </div>
-              <div class="chat-item-sub">ID: ${chat.id}</div>
+              <div class="chat-item-sub">ID: ${chat.id}${isChatBlocked(chat.id) ? ' · 🚫 Заблокирован' : ''}</div>
             </div>
           </div>
           <button class="btn-delete-chat" onclick="deleteChat('${escapeHtml(String(chat.id))}')" title="Удалить диалог">🗑</button>
@@ -2320,12 +2327,30 @@
       });
     }
 
+    function isChatBlocked(chatId) {
+      const cid = normalizeChatId(chatId);
+      if (!cid) return false;
+      return chats.some(chat => isSameChat(chat.id, cid) && chat.is_blocked === true) ||
+        localStorage.getItem('alpha_chat_blocked_' + userUuid + '_' + cid) === 'true';
+    }
+
+    function blockChatLocally(chatId) {
+      const cid = normalizeChatId(chatId);
+      if (!cid) return;
+      localStorage.setItem('alpha_chat_blocked_' + userUuid + '_' + cid, 'true');
+      clearGen(cid);
+      if (chatStreams[cid]) chatStreams[cid].active = false;
+      renderChatList();
+      updateBotComposer();
+    }
+
     function updateBotComposer() {
-      const busy = isChatStreaming(currentChatId);
+      const blocked = isChatBlocked(currentChatId);
+      const busy = blocked || isChatStreaming(currentChatId);
       const input = document.getElementById('messageInput');
       if (input) {
         input.disabled = busy;
-        input.placeholder = busy ? 'Бот готовит ответ…' : 'Напишите сообщение…';
+        input.placeholder = blocked ? 'Чат заблокирован за нарушение правил общения' : busy ? 'Бот готовит ответ…' : 'Напишите сообщение…';
       }
       const send = document.getElementById('sendBtn');
       if (send) send.disabled = busy;
@@ -2428,6 +2453,7 @@
           delete activeStreamBubbles[cid];
           delete endReceivedForChat[cid];
           localStorage.removeItem('alpha_chat_title_' + userUuid + '_' + cid);
+          localStorage.removeItem('alpha_chat_blocked_' + userUuid + '_' + cid);
           currentChatId = data.chat_id;
           showEmptyChatPrompt();
           localStorage.setItem(LS_CHAT_KEY, String(currentChatId));
@@ -2466,6 +2492,7 @@
           delete chatStreams[cid];
           delete activeStreamBubbles[cid];
           localStorage.removeItem('alpha_chat_title_' + userUuid + '_' + cid);
+          localStorage.removeItem('alpha_chat_blocked_' + userUuid + '_' + cid);
           chats = chats.filter(c => !isSameChat(c.id, chatId));
           if (isSameChat(currentChatId, chatId)) {
             if (chats.length > 0) {
@@ -2570,14 +2597,14 @@
     }
 
     function sendChip(text) {
-      if (isChatStreaming(currentChatId)) return;
+      if (isChatBlocked(currentChatId) || isChatStreaming(currentChatId)) return;
       const input = document.getElementById('messageInput');
       input.value = text;
       sendMessage();
     }
 
     function sendMessage() {
-      if (isChatStreaming(currentChatId)) return;
+      if (isChatBlocked(currentChatId) || isChatStreaming(currentChatId)) return;
       const input = document.getElementById('messageInput');
       const text = input.value.trim();
       if (!text) return;
@@ -2750,14 +2777,15 @@
     }
 
     function appendProfanityAlert() {
+      blockChatLocally(currentChatId);
       const container = document.getElementById('messageContainer');
       const div = document.createElement('div');
       div.className = 'moderation-alert';
       div.innerHTML = `
         <span style="font-size: 24px;">🚫</span>
         <div>
-          <b>Обращение приостановлено:</b> Обнаружено нарушение регламента деловой коммуникации (нецензурная лексика). 
-          Пожалуйста, соблюдайте правила общения на Портале Поставщиков.
+          <b>Чат заблокирован:</b> Обнаружено нарушение регламента деловой коммуникации (нецензурная лексика).
+          Отправка сообщений в этот чат недоступна. Пожалуйста, соблюдайте правила общения на Портале Поставщиков.
         </div>
       `;
       container.appendChild(div);
@@ -2865,18 +2893,24 @@
         }
         const question = isSameChat(offer.chatId, currentChatId)
           ? Array.from(document.querySelectorAll('#messageContainer .message-row.user .bubble-content')).pop()?.textContent : '';
+        if (!isSameChat(offer.chatId, currentChatId) || isChatBlocked(offer.chatId) || isChatStreaming(offer.chatId)) return;
+        const input = document.getElementById('messageInput');
+        const draft = input.value;
+        input.value = ('Оператор. ' + (offer.text || question || 'Нужна помощь по моему обращению.')).slice(0, 1000);
         try {
-          socket.send(JSON.stringify({event:'SUPPORT_REQUEST', status:'OK', data:{
-            user_uuid:userUuid, chat_id:Number(offer.chatId), text:(offer.text || question || 'Нужна помощь оператора по моему обращению.').slice(0, 1000)
-          }}));
+          // MAESTRO generates the registration reply and requests support once.
+          sendMessage();
         } catch (error) {
           box.querySelector('[role="status"]').textContent = 'Не удалось отправить запрос. Повторите попытку.';
           return;
+        } finally {
+          input.value = draft;
         }
-        const key = 'alpha_support_pending_sources_' + userUuid;
-        const pending = safeParseLS(key, []);
-        pending.push(offer.chatId);
-        setLSObj(key, pending);
+        const updated = operatorOffers();
+        updated[String(messageId)].status = 'accepted';
+        saveOperatorOffers(updated);
+        box.remove();
+        return;
       }
       offer.status = accepted ? 'accepted' : 'declined';
       saveOperatorOffers(offers);
@@ -2936,6 +2970,25 @@
           button.classList.toggle('active-dislike', selected && button.dataset.reaction === '-1');
         });
         notice.textContent = '';
+        const countdown = {};
+        parent.reactionCountdown = countdown;
+        if (data.operator_offer_delay) {
+          const owner = userUuid;
+          const chatId = btn.dataset.chatId;
+          const sentAt = localStorage.getItem('alpha_last_user_send_' + owner + '_' + chatId);
+          const deadline = Date.now() + Number(data.operator_offer_delay) * 1000;
+          const tick = () => {
+            if (parent.reactionCountdown !== countdown) return;
+            if (owner !== userUuid || localStorage.getItem('alpha_last_user_send_' + owner + '_' + chatId) !== sentAt) {
+              notice.textContent = '';
+              return;
+            }
+            const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+            notice.textContent = seconds ? `Предложим помощь оператора через ${seconds} сек.` : '';
+            if (seconds) setTimeout(tick, 250);
+          };
+          tick();
+        }
       } catch (error) {
         notice.textContent = 'Не удалось сохранить реакцию. Попробуйте ещё раз.';
       } finally {

@@ -135,3 +135,7 @@ networks:
 
 volumes:
   pgdata:
+
+
+
+    LLM_USER_UUID

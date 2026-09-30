@@ -29,19 +29,9 @@ LLM_USER_UUID = os.getenv("LLM_USER_UUID")
 
 
 async def init_db():
-    print("⚠️ Полная пересборка БД: DROP ALL → CREATE ALL")
-
-    # 1. Удаляем все таблицы (drop_all автоматически учитывает foreign key порядок)
+    # Startup must preserve chats, reactions and accumulated analytics.
     async with engine.begin() as conn:
-        print("🗑  Удаляю все таблицы...")
-        await conn.run_sync(Base.metadata.drop_all)
-
-    # 2. Создаем все таблицы заново
-    async with engine.begin() as conn:
-        print("📦 Создаю таблицы...")
         await conn.run_sync(Base.metadata.create_all)
-
-    print("✅ Таблицы пересозданы")
 
     # 3. Добавляем LLM-пользователя
     if not LLM_USER_UUID:

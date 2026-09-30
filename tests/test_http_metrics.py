@@ -1,4 +1,6 @@
 import unittest
+from unittest.mock import patch, AsyncMock
+from Back.modules.chat.metrics import get_db
 from fastapi import FastAPI
 from prometheus_client.parser import text_string_to_metric_families
 from Back.modules.chat.metrics import HttpMetricsMiddleware, registry, router
@@ -10,6 +12,7 @@ class HttpMetricsTests(unittest.IsolatedAsyncioTestCase):
         app = FastAPI()
         app.add_middleware(HttpMetricsMiddleware)
         app.include_router(router)
+        app.dependency_overrides[get_db] = lambda: None
         @app.get('/chats/{chat_id}')
         async def chat(chat_id: int):
             return {'id': chat_id}
@@ -32,7 +35,8 @@ class HttpMetricsTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await request('/broken')
         before = generate_latest(registry)
-        await request('/metrics')
+        with patch('Back.modules.chat.metrics.collect_business_metrics', new=AsyncMock(return_value=b'')):
+            await request('/metrics')
         await request('/api/health')
         self.assertEqual(before, generate_latest(registry))
         counts = { (s.labels['route'], s.labels['status']): s.value

@@ -12,6 +12,7 @@ from Back.infra.redis.streams import add_new_emit
 from Back.modules.support.handlers import ask_support_handler
 from Back.modules.support.events import SupportRequestEvent, SupportRequestData
 from Back.modules.chat import crud
+from Back.modules.chat.metrics import record_question
 from Back.modules.chat.streams import add_new_chat_stream
 from Back.modules.chat.events import NewTokenEvent, EndGenerationEvent
 from Back.modules.user.models import Role
@@ -53,6 +54,7 @@ async def end_generation_handler(
             local_id=updated_local_id,
             user_role=Role.BOT,
         )
+        await record_question(db, event.meta)
         await db.commit()
         event.meta["message_id"] = saved_message.id
         await add_new_emit(redis=redis, event=event, user_uuid=event.data.user_uuid)
@@ -62,7 +64,8 @@ async def end_generation_handler(
                 event=SupportRequestEvent(
                     data=SupportRequestData(
                         user_uuid=event.data.user_uuid,
-                        text=event.meta.get("user_query")
+                        chat_id=event.data.chat_id,
+                        text=event.meta.get("user_query")[:1000]
                     )
                 ),
                 db=db

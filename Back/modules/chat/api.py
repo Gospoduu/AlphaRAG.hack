@@ -95,8 +95,9 @@ async def reaction_endpoint(
         raise
 
     # A notification failure must not undo or report failure for a saved reaction.
+    offer_delay = None
     if request.reaction == -1:
-        await schedule_operator_offer(request.chat_id, request.message_id, request.user_uuid, redis)
+        offer_delay = await schedule_operator_offer(request.chat_id, request.message_id, request.user_uuid, redis)
     else:
         await cancel_operator_offer(request.chat_id, redis, request.message_id)
-    return {"status": "ok", "message_id": request.message_id, "reaction": request.reaction}
+    return {"status": "ok", "message_id": request.message_id, "reaction": request.reaction, "operator_offer_delay": offer_delay}
