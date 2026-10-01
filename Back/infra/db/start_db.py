@@ -11,10 +11,6 @@ import sys
 
 # ФИКС для Docker: добавляем корень проекта (/app) в sys.pat
 
-
-# Теперь используем абсолютные импорты для Docker
-
-# Сначала пробуем абсолютные импорты (для Docker)
 from Back.infra.db.db import engine, AsyncSessionLocal, Base
 from Back.modules.user.models import *
 from Back.modules.chat.models import *

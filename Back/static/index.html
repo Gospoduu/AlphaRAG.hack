@@ -1661,43 +1661,25 @@
       // 2. Remove standard illustrations header if present
       text = text.replace(/\*\*Иллюстрации к инструкции:\*\*\s*/gi, '');
 
-      // 3. Extract knowledge base citations:
-      // Pattern A: **Источники из базы знаний:** or **Официальные источники:** followed by - [Title](URL)
-      const kbBlockMatch = text.match(/\*\*(?:Источники из базы знаний|Официальные источники):\*\*\s*([\s\S]*?)(?=(?:\n\s*\n\s*\*\*|$))/i);
-      if (kbBlockMatch) {
-        const blockContent = kbBlockMatch[1];
-        const linkRegex = /-\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g;
-        let lm;
-        while ((lm = linkRegex.exec(blockContent)) !== null) {
-          const title = lm[1].trim();
-          const url = lm[2].trim();
-          if (!citations.some(c => c.url === url)) {
-            citations.push({ title, url });
-          }
-        }
-        text = text.replace(kbBlockMatch[0], '');
-      }
+      // Collect every source section (including numbered lists and emoji headers).
+      const addCitation = (title, url) => {
+        url = url.trim();
+        if (!citations.some(c => c.url === url)) citations.push({title: title.trim(), url});
+      };
+      const linkRegex = /(?<!!)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+      const sourceBlockRegex = /\*\*(?:📚\s*)?(?:Источники из базы знаний|Официальные источники):\*\*\s*([\s\S]*?)(?=\n\s*\n\s*\*\*|$)/gi;
+      text = text.replace(sourceBlockRegex, (block, content) => {
+        const links = [...content.matchAll(linkRegex)];
+        links.forEach(([, title, url]) => addCitation(title, url));
+        return links.length ? '' : block;
+      });
 
-      // Pattern B: 📖 **Источник:** [Title](URL) or 📖 Источник: [Title](URL)
-      const sourceRegex = /(?:📖\s*)?(?:\*\*)?Источник:(?:\*\*)?\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi;
-      let sm;
-      while ((sm = sourceRegex.exec(text)) !== null) {
-        const title = sm[1].trim();
-        const url = sm[2].trim();
-        if (!citations.some(c => c.url === url)) {
-          citations.unshift({ title, url });
-        }
-      }
-
-      // Pattern C: Any remaining bullet links to official portals at the end of text
-      const bulletLinkRegex = /(?:^|\n)-\s*\[([^\]]+)\]\((https?:\/\/(?:zakupki\.mos\.ru|zakupki\.gov\.ru)[^\)]*)\)/g;
-      let blm;
-      while ((blm = bulletLinkRegex.exec(text)) !== null) {
-        const title = blm[1].trim();
-        const url = blm[2].trim();
-        if (!citations.some(c => c.url === url)) {
-          citations.push({ title, url });
-        }
+      // A source already mentioned inline is omitted by the answer formatter
+      // from the appended list. Include those links in the same cards as well.
+      const sourceRegex = /(?:📖\s*)?(?:\*\*)?Источник:(?:\*\*)?\s*\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
+      for (const [, title, url] of text.matchAll(sourceRegex)) addCitation(title, url);
+      for (const [, title, url] of text.matchAll(linkRegex)) {
+        if (/^https?:\/\/(?:zakupki\.mos\.ru|zakupki\.gov\.ru)(?:[/:?#]|$)/i.test(url)) addCitation(title, url);
       }
 
       // 4. Parse main text with marked.parse
