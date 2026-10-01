@@ -6,7 +6,7 @@ const html = fs.readFileSync(path.join(__dirname, '../Back/static/index.html'), 
 const elements = new Map();
 function element(id) {
   if (!elements.has(id)) elements.set(id, {
-    innerHTML: '', value: '', textContent: '', scrollTop: 0, scrollHeight: 100,
+    innerHTML: '', value: '', textContent: '', style: {}, scrollTop: 0, scrollHeight: 100,
     classList: {add() {}, remove() {}, toggle() {}},
     appendChild() {}, setAttribute() {}, focus() {},
     insertAdjacentHTML(_, content) { this.innerHTML += content; },
@@ -16,6 +16,7 @@ function element(id) {
 }
 const context = vm.createContext({
   assert, console: {warn() {}, log() {}}, Date, Map,
+  setTimeout(fn) {context.transferTimer = fn;},
   location: {protocol: 'http:', hostname: 'localhost'}, window: {},
   WebSocket: {OPEN: 1},
   localStorage: {getItem() {return null;}, setItem() {}},
@@ -33,6 +34,23 @@ assert(!html.includes("sendSupportEvent('SUPPORT_REQUEST'"));
     const sent = [];
     socket = {readyState: 1, send(raw) {sent.push(JSON.parse(raw));}};
     fetch = async () => ({ok:true, json:async () => ({items:[], total:0})});
+    // Both direct operator requests and accepted dislike offers use SUPPORT_RESPONSE.
+    for (const id of ['direct-operator', 'accepted-dislike']) {
+      showBotView();
+      currentChatId = 7;
+      handleSupportEvent('support_response', {user_uuid:'user-a', support_dialog_id:id, chat_id:7});
+      assert.equal(activeChatKind, 'bot');
+      assert.equal(supportState(id).sourceChatId, 7);
+      await transferTimer();
+      assert.equal(activeChatKind, 'support');
+      assert.equal(currentSupportId, id);
+    }
+    // A user navigation while the timer is pending must be respected.
+    showBotView();
+    handleSupportEvent('support_response', {support_dialog_id:'background', chat_id:7});
+    showBotView();
+    await transferTimer();
+    assert.equal(activeChatKind, 'bot');
     supportState('a').problem = 'Первичное обращение';
     await selectSupportDialog('a');
     assert.equal(document.getElementById('supportStatus').textContent, 'Ожидает');

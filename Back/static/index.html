@@ -1314,7 +1314,6 @@
         <strong id="headerUserRole">user</strong>
       </div>
 
-      <button class="btn-nav" onclick="openEvalModal()">⭐ Оценить</button>
       <button class="btn-nav" onclick="logout()">Выйти</button>
     </div>
   </header>
@@ -1384,12 +1383,6 @@
         <div class="chat-header-info">
           <div class="chat-header-title" id="chatHeaderTitle">Диалог не выбран</div>
           <div id="currentLineBadge" class="line-badge l1">L1 • ИИ-консультант</div>
-        </div>
-
-        <div class="chat-header-actions">
-          <button class="btn-action-sm" onclick="openEvalModal()" title="Оценить качество работы">
-            <span>⭐</span> Оценить решение
-          </button>
         </div>
       </div>
 
@@ -1661,43 +1654,25 @@
       // 2. Remove standard illustrations header if present
       text = text.replace(/\*\*Иллюстрации к инструкции:\*\*\s*/gi, '');
 
-      // 3. Extract knowledge base citations:
-      // Pattern A: **Источники из базы знаний:** or **Официальные источники:** followed by - [Title](URL)
-      const kbBlockMatch = text.match(/\*\*(?:Источники из базы знаний|Официальные источники):\*\*\s*([\s\S]*?)(?=(?:\n\s*\n\s*\*\*|$))/i);
-      if (kbBlockMatch) {
-        const blockContent = kbBlockMatch[1];
-        const linkRegex = /-\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g;
-        let lm;
-        while ((lm = linkRegex.exec(blockContent)) !== null) {
-          const title = lm[1].trim();
-          const url = lm[2].trim();
-          if (!citations.some(c => c.url === url)) {
-            citations.push({ title, url });
-          }
-        }
-        text = text.replace(kbBlockMatch[0], '');
-      }
+      // Collect every source section (including numbered lists and emoji headers).
+      const addCitation = (title, url) => {
+        url = url.trim();
+        if (!citations.some(c => c.url === url)) citations.push({title: title.trim(), url});
+      };
+      const linkRegex = /(?<!!)\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+      const sourceBlockRegex = /\*\*(?:📚\s*)?(?:Источники из базы знаний|Официальные источники):\*\*\s*([\s\S]*?)(?=\n\s*\n\s*\*\*|$)/gi;
+      text = text.replace(sourceBlockRegex, (block, content) => {
+        const links = [...content.matchAll(linkRegex)];
+        links.forEach(([, title, url]) => addCitation(title, url));
+        return links.length ? '' : block;
+      });
 
-      // Pattern B: 📖 **Источник:** [Title](URL) or 📖 Источник: [Title](URL)
-      const sourceRegex = /(?:📖\s*)?(?:\*\*)?Источник:(?:\*\*)?\s*\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi;
-      let sm;
-      while ((sm = sourceRegex.exec(text)) !== null) {
-        const title = sm[1].trim();
-        const url = sm[2].trim();
-        if (!citations.some(c => c.url === url)) {
-          citations.unshift({ title, url });
-        }
-      }
-
-      // Pattern C: Any remaining bullet links to official portals at the end of text
-      const bulletLinkRegex = /(?:^|\n)-\s*\[([^\]]+)\]\((https?:\/\/(?:zakupki\.mos\.ru|zakupki\.gov\.ru)[^\)]*)\)/g;
-      let blm;
-      while ((blm = bulletLinkRegex.exec(text)) !== null) {
-        const title = blm[1].trim();
-        const url = blm[2].trim();
-        if (!citations.some(c => c.url === url)) {
-          citations.push({ title, url });
-        }
+      // A source already mentioned inline is omitted by the answer formatter
+      // from the appended list. Include those links in the same cards as well.
+      const sourceRegex = /(?:📖\s*)?(?:\*\*)?Источник:(?:\*\*)?\s*\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi;
+      for (const [, title, url] of text.matchAll(sourceRegex)) addCitation(title, url);
+      for (const [, title, url] of text.matchAll(linkRegex)) {
+        if (/^https?:\/\/(?:zakupki\.mos\.ru|zakupki\.gov\.ru)(?:[/:?#]|$)/i.test(url)) addCitation(title, url);
       }
 
       // 4. Parse main text with marked.parse
@@ -3009,50 +2984,7 @@
     }
 
     // ---------------- EVALUATION MODAL (CRITERION 4) ----------------
-    function openEvalModal() {
-      document.getElementById('evalModal').classList.add('show');
-    }
 
-    function closeEvalModal() {
-      document.getElementById('evalModal').classList.remove('show');
-    }
-
-    function setRating(val) {
-      currentSelectedRating = val;
-      const stars = document.querySelectorAll('#starRating .star');
-      stars.forEach(s => {
-        const sVal = Number(s.dataset.val);
-        if (sVal <= val) s.classList.add('active');
-        else s.classList.remove('active');
-      });
-    }
-
-    function toggleTag(el) {
-      el.classList.toggle('selected');
-    }
-
-    function submitEvaluation() {
-      const notes = document.getElementById('evalNotes').value.trim();
-      const selectedTags = Array.from(document.querySelectorAll('#tagGrid .eval-tag.selected')).map(t => t.textContent.trim());
-
-      const report = {
-        chat_id: currentChatId,
-        user_uuid: userUuid,
-        rating: currentSelectedRating,
-        tags: selectedTags,
-        systemic_conclusion: notes,
-        timestamp: new Date().toISOString()
-      };
-
-      // Save locally & display confirmation
-      const prevReviews = safeParseLS('alpha_systemic_reviews', []);
-      prevReviews.push(report);
-      setLSObj('alpha_systemic_reviews', prevReviews);
-
-      closeEvalModal();
-      appendSystemMessage(`⭐ Спасибо! Ваше содержательное заключение сохранено (Оценка: ${currentSelectedRating}/5). Оно будет использовано для выявления системных проблем на портале.`, 'info');
-      document.getElementById('evalNotes').value = '';
-    }
 
     // ---------------- LOGOUT ----------------
     function logout() {
@@ -3521,8 +3453,6 @@
     window.logout = logout;
     window.toggleFb = toggleFb;
     window.copyText = copyText;
-    window.openEvalModal = openEvalModal;
-    window.closeEvalModal = closeEvalModal;
     window.openImgModal = openImgModal;
     window.closeImgModal = closeImgModal;
     window.setRating = setRating;
